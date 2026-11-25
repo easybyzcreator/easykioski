@@ -83,16 +83,32 @@ function extractCleanApiErrorMessage(err: any): string {
   return raw || 'Falha ao traduzir os textos. Tente novamente.';
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          const err: any = new Error('Tempo limite excedido ao traduzir.');
+          err.status = 504;
+          reject(err);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function generateTranslationWithRetry(
   ai: GoogleGenAI,
   contents: string,
   config: Record<string, any>
 ) {
-  const attempts: Array<{ model: string; delayMs: number }> = [
-    { model: 'gemini-4-hydrogen', delayMs: 0 },
-    { model: 'gemini-3.1-flash-lite', delayMs: 600 },
-    { model: 'gemini-4-hydrogen', delayMs: 1400 },
-    { model: 'gemini-3.1-flash-lite', delayMs: 2200 },
+  const attempts: Array<{ model: string; delayMs: number; timeoutMs: number }> = [
+    { model: 'gemini-3.1-flash-lite', delayMs: 0, timeoutMs: 8000 },
+    { model: 'gemini-4-hydrogen', delayMs: 300, timeoutMs: 10000 },
   ];
 
   let lastError: any = null;
@@ -105,11 +121,14 @@ async function generateTranslationWithRetry(
         attempt.model === 'gemini-3.1-flash-lite'
           ? { ...config, thinkingConfig: undefined }
           : config;
-      return await ai.models.generateContent({
-        model: attempt.model,
-        contents,
-        config: attemptConfig,
-      });
+      return await withTimeout(
+        ai.models.generateContent({
+          model: attempt.model,
+          contents,
+          config: attemptConfig,
+        }),
+        attempt.timeoutMs
+      );
     } catch (err: any) {
       lastError = err;
       const msg = String(err?.message || '');
@@ -123,7 +142,8 @@ async function generateTranslationWithRetry(
         msg.includes('503') ||
         msg.includes('UNAVAILABLE') ||
         msg.includes('high demand') ||
-        msg.includes('RESOURCE_EXHAUSTED');
+        msg.includes('RESOURCE_EXHAUSTED') ||
+        msg.includes('Tempo limite');
       if (!isTransient) {
         throw err;
       }

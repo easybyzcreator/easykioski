@@ -1650,15 +1650,19 @@ export default function Admin({
   };
 
   const handleSidePriceChange = (val: string) => {
-    setSidePriceInput(val);
-    if (!val.trim()) {
+    const digits = val.replace(/\D/g, '');
+    if (!digits) {
+      setSidePriceInput('');
       setNewSide(prev => ({ ...prev, price: 0 }));
       return;
     }
-    const numeric = parseFloat(val.replace(',', '.'));
-    if (!isNaN(numeric)) {
-      setNewSide(prev => ({ ...prev, price: Math.max(0, numeric) }));
-    }
+    const numeric = parseInt(digits, 10) / 100;
+    const formatted = numeric.toLocaleString('pt-BR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    setSidePriceInput(formatted);
+    setNewSide(prev => ({ ...prev, price: numeric }));
   };
 
   const handleAddCategory = async (e: React.FormEvent) => {
@@ -6966,7 +6970,8 @@ export default function Admin({
                   </label>
                   <input
                     type="text"
-                    placeholder="0.00 (Grátis)"
+                    inputMode="numeric"
+                    placeholder="0,00 (Grátis)"
                     className="w-full p-3 rounded-xl border border-gray-300 bg-white text-sm text-black"
                     value={sidePriceInput}
                     onChange={e => handleSidePriceChange(e.target.value)}
@@ -7107,7 +7112,14 @@ export default function Admin({
                               title_es: side.title_es || side.translations?.es?.title || '',
                               title_pt: side.title_pt || side.translations?.pt?.title || '',
                             });
-                            setSidePriceInput(side.price > 0 ? side.price.toFixed(2) : '');
+                            setSidePriceInput(
+                              side.price > 0
+                                ? side.price.toLocaleString('pt-BR', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })
+                                : ''
+                            );
                             setShowSideTranslations(true);
                             scrollToTop();
                           }}

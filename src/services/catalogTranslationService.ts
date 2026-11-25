@@ -183,6 +183,106 @@ export function countPendingCatalogTranslations(
   );
 }
 
+async function translateTextViaPublicEndpoint(
+  text: string,
+  targetLang: 'en' | 'es' | 'pt'
+): Promise<string> {
+  const clean = text.trim();
+  if (!clean) return '';
+
+  // Try Google Translate public web endpoint first (CORS-enabled, no API key required)
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(clean)}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && Array.isArray(data[0])) {
+        const translated = data[0]
+          .map((seg: any) => (Array.isArray(seg) && typeof seg[0] === 'string' ? seg[0] : ''))
+          .join('')
+          .trim();
+        if (translated) return translated;
+      }
+    }
+  } catch {
+    // fall through to secondary public translator
+  }
+
+  // Secondary public fallback (MyMemory)
+  try {
+    const res = await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(clean)}&langpair=autodetect|${targetLang}`
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const translated = String(data?.responseData?.translatedText || '').trim();
+      if (translated && !translated.toUpperCase().includes('MYMEMORY WARNING')) {
+        return translated;
+      }
+    }
+  } catch {
+    // ignore and return original
+  }
+
+  return clean;
+}
+
+async function translateItemsViaPublicFallback(
+  items: Array<{
+    id: string;
+    kind: 'category' | 'product' | 'side';
+    title: string;
+    description?: string;
+    ingredients?: string;
+  }>
+): Promise<{ items: Array<MultilingualFields & { id: string; kind: string }> }> {
+  const translatedItems = await Promise.all(
+    items.map(async (item) => {
+      const title = (item.title || '').trim();
+      const description = (item.description || '').trim();
+      const ingredients = (item.ingredients || '').trim();
+
+      const [
+        title_en,
+        title_es,
+        title_pt,
+        description_en,
+        description_es,
+        description_pt,
+        ingredients_en,
+        ingredients_es,
+        ingredients_pt,
+      ] = await Promise.all([
+        translateTextViaPublicEndpoint(title, 'en'),
+        translateTextViaPublicEndpoint(title, 'es'),
+        translateTextViaPublicEndpoint(title, 'pt'),
+        description ? translateTextViaPublicEndpoint(description, 'en') : Promise.resolve(''),
+        description ? translateTextViaPublicEndpoint(description, 'es') : Promise.resolve(''),
+        description ? translateTextViaPublicEndpoint(description, 'pt') : Promise.resolve(''),
+        ingredients ? translateTextViaPublicEndpoint(ingredients, 'en') : Promise.resolve(''),
+        ingredients ? translateTextViaPublicEndpoint(ingredients, 'es') : Promise.resolve(''),
+        ingredients ? translateTextViaPublicEndpoint(ingredients, 'pt') : Promise.resolve(''),
+      ]);
+
+      return {
+        id: item.id,
+        kind: item.kind,
+        title_en: title_en || title,
+        title_es: title_es || title,
+        title_pt: title_pt || title,
+        description_en,
+        description_es,
+        description_pt,
+        ingredients_en,
+        ingredients_es,
+        ingredients_pt,
+      };
+    })
+  );
+
+  return { items: translatedItems };
+}
+
 async function postTranslateMultilingual<T = any>(
   items: Array<{
     id: string;
@@ -193,14 +293,27 @@ async function postTranslateMultilingual<T = any>(
   }>,
   fallbackErrorLabel: string
 ): Promise<T> {
-  const response = await fetch('/api/translate-multilingual', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({ items }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+  let response: Response;
+  try {
+    response = await fetch('/api/translate-multilingual', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ items }),
+      signal: controller.signal,
+    });
+  } catch (networkErr) {
+    clearTimeout(timeoutId);
+    console.warn('[Translate] /api/translate-multilingual indisponível, usando tradutor público:', networkErr);
+    return (await translateItemsViaPublicFallback(items)) as unknown as T;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   const contentType = response.headers.get('content-type') || '';
   const rawText = await response.text();
@@ -215,25 +328,34 @@ async function postTranslateMultilingual<T = any>(
     }
   }
 
+  // Fall back to the live Google Translate endpoint if the backend route is unavailable
+  // (e.g., static/Vercel host returning 405/404/HTML, missing env var 503, or transient upstream 5xx).
+  const shouldUsePublicFallback =
+    response.status === 405 ||
+    response.status === 404 ||
+    response.status === 500 ||
+    response.status === 502 ||
+    response.status === 503 ||
+    response.status === 504 ||
+    trimmed.startsWith('<') ||
+    (!parsed && !response.ok);
+
+  if (shouldUsePublicFallback) {
+    console.warn(
+      `[Translate] Backend /api/translate-multilingual retornou HTTP ${response.status}; ativando tradução alternativa.`
+    );
+    return (await translateItemsViaPublicFallback(items)) as unknown as T;
+  }
+
   if (!response.ok) {
     if (parsed?.error) {
       throw new Error(String(parsed.error));
-    }
-    if (trimmed.startsWith('<')) {
-      throw new Error(
-        'O servidor de tradução não respondeu nesta URL (retornou HTML). Recarregue a página ou tente novamente em alguns segundos.'
-      );
     }
     throw new Error(`Erro HTTP ${response.status} ${fallbackErrorLabel}.`);
   }
 
   if (!parsed) {
-    if (trimmed.startsWith('<')) {
-      throw new Error(
-        'O servidor de tradução não está ativo nesta hospedagem estática. Para traduzir automaticamente, abra o painel no servidor do app ou edite as traduções manualmente abaixo.'
-      );
-    }
-    throw new Error('Resposta inválida do servidor de tradução. Tente novamente.');
+    return (await translateItemsViaPublicFallback(items)) as unknown as T;
   }
 
   return parsed as T;

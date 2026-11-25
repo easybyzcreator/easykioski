@@ -15,7 +15,7 @@ interface PwaInstallBannerProps {
   language: KioskLanguage;
 }
 
-const DISMISS_STORAGE_KEY = 'easy_totem_pwa_banner_dismissed_v1';
+const DISMISS_SESSION_KEY = 'easy_kioski_pwa_banner_dismissed_session';
 
 export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({ settings, language }) => {
   const theme = getBrandTheme(settings);
@@ -24,7 +24,7 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({ settings, la
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [dismissed, setDismissed] = useState<boolean>(() => {
     try {
-      return window.localStorage.getItem(DISMISS_STORAGE_KEY) === '1';
+      return window.sessionStorage.getItem(DISMISS_SESSION_KEY) === '1';
     } catch {
       return false;
     }
@@ -61,7 +61,7 @@ export const PwaInstallBanner: React.FC<PwaInstallBannerProps> = ({ settings, la
   const handleDismiss = () => {
     setDismissed(true);
     try {
-      window.localStorage.setItem(DISMISS_STORAGE_KEY, '1');
+      window.sessionStorage.setItem(DISMISS_SESSION_KEY, '1');
     } catch {
       // Ignore storage errors
     }
