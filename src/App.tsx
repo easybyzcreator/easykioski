@@ -153,6 +153,10 @@ export default function App() {
             whatsappCountryCode: data.whatsappCountryCode || '+1',
             salesTaxRate: typeof data.salesTaxRate === 'number' ? data.salesTaxRate : (prev.salesTaxRate ?? 7.75),
             terminalProvider: data.terminalProvider || prev.terminalProvider || 'simulation',
+            venmoUsername: data.venmoUsername?.trim() ? data.venmoUsername : 'easykioski-demo',
+            paypalMeUsername: data.paypalMeUsername?.trim() ? data.paypalMeUsername : 'easykioskidemo',
+            cashAppTag: data.cashAppTag?.trim() ? data.cashAppTag : 'easykioskidemo',
+            allowPayAtCounter: data.allowPayAtCounter !== undefined ? data.allowPayAtCounter : true,
           }));
         }
         setLoading(false);

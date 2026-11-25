@@ -187,6 +187,127 @@ export async function translateSingleItemAllLanguages(input: {
   };
 }
 
+export interface TranslatedIntroTexts {
+  introSubtitle_en: string;
+  introSubtitle_es: string;
+  introSubtitle_pt: string;
+  introDescription_en: string;
+  introDescription_es: string;
+  introDescription_pt: string;
+  introButtonText_en: string;
+  introButtonText_es: string;
+  introButtonText_pt: string;
+  introBottomText_en: string;
+  introBottomText_es: string;
+  introBottomText_pt: string;
+  slogan_en: string;
+  slogan_es: string;
+  slogan_pt: string;
+}
+
+/**
+ * Admin-only helper: translates all custom intro screen texts + store slogan
+ * into EN, ES, and PT in a single batch request via `/api/translate-multilingual`.
+ */
+export async function translateIntroTextsAllLanguages(input: {
+  introSubtitle?: string;
+  introDescription?: string;
+  introButtonText?: string;
+  introBottomText?: string;
+  slogan?: string;
+}): Promise<TranslatedIntroTexts> {
+  const payloadItems: Array<{ id: string; kind: 'category'; title: string }> = [];
+
+  if (input.introSubtitle?.trim()) {
+    payloadItems.push({ id: 'introSubtitle', kind: 'category', title: input.introSubtitle.trim() });
+  }
+  if (input.introDescription?.trim()) {
+    payloadItems.push({ id: 'introDescription', kind: 'category', title: input.introDescription.trim() });
+  }
+  if (input.introButtonText?.trim()) {
+    payloadItems.push({ id: 'introButtonText', kind: 'category', title: input.introButtonText.trim() });
+  }
+  if (input.introBottomText?.trim()) {
+    payloadItems.push({ id: 'introBottomText', kind: 'category', title: input.introBottomText.trim() });
+  }
+  if (input.slogan?.trim()) {
+    payloadItems.push({ id: 'slogan', kind: 'category', title: input.slogan.trim() });
+  }
+
+  const result: TranslatedIntroTexts = {
+    introSubtitle_en: input.introSubtitle || '',
+    introSubtitle_es: input.introSubtitle || '',
+    introSubtitle_pt: input.introSubtitle || '',
+    introDescription_en: input.introDescription || '',
+    introDescription_es: input.introDescription || '',
+    introDescription_pt: input.introDescription || '',
+    introButtonText_en: input.introButtonText || '',
+    introButtonText_es: input.introButtonText || '',
+    introButtonText_pt: input.introButtonText || '',
+    introBottomText_en: input.introBottomText || '',
+    introBottomText_es: input.introBottomText || '',
+    introBottomText_pt: input.introBottomText || '',
+    slogan_en: input.slogan || '',
+    slogan_es: input.slogan || '',
+    slogan_pt: input.slogan || '',
+  };
+
+  if (payloadItems.length === 0) {
+    return result;
+  }
+
+  const response = await fetch('/api/translate-multilingual', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: payloadItems }),
+  });
+
+  if (!response.ok) {
+    const errBody = await response.json().catch(() => ({}));
+    throw new Error(errBody?.error || `Erro HTTP ${response.status} ao traduzir textos da tela inicial.`);
+  }
+
+  const data = (await response.json()) as { items?: Array<MultilingualFields & { id: string }> };
+  const map = new Map((data?.items || []).map((it) => [it.id, it]));
+
+  const sub = map.get('introSubtitle');
+  if (sub) {
+    result.introSubtitle_en = sub.title_en || result.introSubtitle_en;
+    result.introSubtitle_es = sub.title_es || result.introSubtitle_es;
+    result.introSubtitle_pt = sub.title_pt || result.introSubtitle_pt;
+  }
+
+  const desc = map.get('introDescription');
+  if (desc) {
+    result.introDescription_en = desc.title_en || result.introDescription_en;
+    result.introDescription_es = desc.title_es || result.introDescription_es;
+    result.introDescription_pt = desc.title_pt || result.introDescription_pt;
+  }
+
+  const btn = map.get('introButtonText');
+  if (btn) {
+    result.introButtonText_en = btn.title_en || result.introButtonText_en;
+    result.introButtonText_es = btn.title_es || result.introButtonText_es;
+    result.introButtonText_pt = btn.title_pt || result.introButtonText_pt;
+  }
+
+  const bot = map.get('introBottomText');
+  if (bot) {
+    result.introBottomText_en = bot.title_en || result.introBottomText_en;
+    result.introBottomText_es = bot.title_es || result.introBottomText_es;
+    result.introBottomText_pt = bot.title_pt || result.introBottomText_pt;
+  }
+
+  const slg = map.get('slogan');
+  if (slg) {
+    result.slogan_en = slg.title_en || result.slogan_en;
+    result.slogan_es = slg.title_es || result.slogan_es;
+    result.slogan_pt = slg.title_pt || result.slogan_pt;
+  }
+
+  return result;
+}
+
 /**
  * Admin-only bulk translator: iterates through all categories, products, and sides
  * missing EN/ES/PT fields, translates them in batches via Gemini, and saves directly to Firestore.

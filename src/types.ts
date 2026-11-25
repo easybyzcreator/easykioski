@@ -186,8 +186,10 @@ export interface Order {
   createdAt: any;
   readyAt?: any;
   orderLanguage?: string;
-  paymentStatus?: 'pending' | 'half' | 'full' | 'paid';
-  paymentProvider?: TerminalProvider;
+  paymentStatus?: 'pending' | 'half' | 'full' | 'paid' | 'awaiting_payment' | 'manual_verification';
+  paymentProvider?: TerminalProvider | 'venmo' | 'paypal' | 'cashapp' | 'zelle' | 'counter' | 'demo';
+  paymentConfirmedAt?: any;
+  webhookSecretVerified?: string;
   onlinePaymentProvider?: OnlinePaymentProvider;
   paymentTransactionId?: string;
   kitchenStatus?: KitchenStatus;
@@ -195,6 +197,7 @@ export interface Order {
   orderSource?: OrderSource;
   pickupType?: PickupType;
   scheduledTime?: string;
+  pickupSchedule?: string;
 }
 
 export interface ImageGallery {
@@ -249,20 +252,44 @@ export interface Settings {
   kitchenPrinterName?: string;
   askTableOrPager?: boolean;
   kioskInactivitySeconds?: number;
+  // Easy Kioski QR Code & Email Auto-Confirmation (Totem Only)
+  venmoUsername?: string;
+  paypalMeUsername?: string;
+  cashAppTag?: string;
+  allowPayAtCounter?: boolean;
+  emailWebhookSecret?: string;
+  totemDemoMode?: boolean;
   // Mobile Pickup (External App Mode) Settings
   defaultPrepMinutes?: number;
   pickupOpenTime?: string; // HH:mm e.g. '09:00'
   pickupCloseTime?: string; // HH:mm e.g. '21:00'
   pickupSlotIntervalMinutes?: number; // e.g. 15
+  zelleIdentifier?: string; // Optional Zelle email or US phone for advance mobile pickup orders
+  mobilePickupRequirePaidForKds?: boolean; // Default true: only send to KDS/printer after payment confirmed
   onlinePaymentProvider?: OnlinePaymentProvider;
   onlinePaymentMerchantId?: string;
-  // Intro screen settings
+  // Intro screen settings & localized translations
   introEnabled?: boolean;
   introTitle?: string;
   introSubtitle?: string;
+  introSubtitle_en?: string;
+  introSubtitle_es?: string;
+  introSubtitle_pt?: string;
   introDescription?: string;
+  introDescription_en?: string;
+  introDescription_es?: string;
+  introDescription_pt?: string;
   introButtonText?: string;
+  introButtonText_en?: string;
+  introButtonText_es?: string;
+  introButtonText_pt?: string;
   introBottomText?: string;
+  introBottomText_en?: string;
+  introBottomText_es?: string;
+  introBottomText_pt?: string;
+  slogan_en?: string;
+  slogan_es?: string;
+  slogan_pt?: string;
   // Catalog selector settings
   selectorEnabled?: boolean;
   selectorTitle?: string;

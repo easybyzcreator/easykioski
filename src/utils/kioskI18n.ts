@@ -147,6 +147,50 @@ export interface KioskDictionary {
   pickupTimeSummaryLabel: string;
   pickupReadyAsap: (mins: number) => string;
   orderMoreItemsBtn: string;
+  // Intro default texts
+  introDefaultSubtitle: string;
+  introDefaultDescription: string;
+  introDefaultBottom: string;
+  // Totem QR Code Payment Flow
+  qrSelectWalletTitle: string;
+  qrSelectWalletSubtitle: string;
+  qrScanPrompt: string;
+  qrWaitingConfirmation: string;
+  qrOrderLabel: (orderNum: number) => string;
+  qrAmountToPay: string;
+  qrIvePaidNotifyCounter: string;
+  qrSimulateDemoBtn: string;
+  qrPayAtCounterTitle: string;
+  qrPayAtCounterDesc: string;
+  qrConfirmPayAtCounterBtn: string;
+  qrPaymentConfirmedTitle: (orderNum: number) => string;
+  qrManualVerificationTitle: (orderNum: number) => string;
+  qrManualVerificationBadge: string;
+  qrManualVerificationSub: string;
+  qrCreatingOrder: string;
+  qrPreferPayAtCounterLink: string;
+  qrBackToQrPayment: string;
+  // Mobile Pickup Deep-Link Payment & Live Tracking
+  mobilePayWithVenmo: string;
+  mobilePayWithPaypal: string;
+  mobilePayWithCashApp: string;
+  mobilePayWithZelle: string;
+  mobileDeepLinkSubtitle: string;
+  mobileTapToOpenApp: string;
+  mobileCopyZelleAndAmount: string;
+  mobileZelleCopiedToast: string;
+  mobileZelleMemoHint: (orderNum: number) => string;
+  mobileWaitingPaymentStatus: string;
+  mobileIvePaidNotifyKitchen: string;
+  mobileSimulateDemoBtn: string;
+  mobilePaymentConfirmedHeadline: (orderNum: number) => string;
+  mobileManualVerifyHeadline: (orderNum: number) => string;
+  mobileSaveReceiptTrackBtn: string;
+  mobileHideReceiptBtn: string;
+  mobileOrderStatusLabel: string;
+  mobileOrderStatusPreparing: string;
+  mobileOrderStatusReady: string;
+  mobileNoWalletsConfigured: string;
 }
 
 export const KIOSK_TRANSLATIONS: Record<KioskLanguage, KioskDictionary> = {
@@ -236,8 +280,8 @@ export const KIOSK_TRANSLATIONS: Record<KioskLanguage, KioskDictionary> = {
     translatingMenu: 'Translating menu...',
     mobilePickupBadge: 'MOBILE PICKUP',
     mobilePickupIntroBottom: 'MOBILE PICKUP · SKIP THE LINE',
-    pwaBannerTitle: 'Add to Home Screen for faster pickup orders',
-    pwaBannerSubtitle: 'Install our web app for one-tap reordering.',
+    pwaBannerTitle: 'Install Easy Kioski App on your phone for faster pickup orders',
+    pwaBannerSubtitle: 'One-tap access from your home screen — skip the line.',
     pwaBannerInstallBtn: 'Install App',
     pwaBannerHowToBtn: 'How to Add',
     pwaModalTitle: 'Add to Home Screen',
@@ -272,6 +316,47 @@ export const KIOSK_TRANSLATIONS: Record<KioskLanguage, KioskDictionary> = {
     pickupTimeSummaryLabel: 'PICKUP WINDOW',
     pickupReadyAsap: (mins) => `ASAP (~${mins} min)`,
     orderMoreItemsBtn: 'Place Another Order',
+    introDefaultSubtitle: 'Artisanal Self-Service',
+    introDefaultDescription: 'Explore our handcrafted menu, customize your favorites, and check out in seconds.',
+    introDefaultBottom: 'EASY KIOSKI · SELF-SERVICE KIOSK',
+    qrSelectWalletTitle: 'Choose Payment Method',
+    qrSelectWalletSubtitle: 'Scan the QR code with your phone camera to pay instantly.',
+    qrScanPrompt: 'Scan with your phone camera to pay',
+    qrWaitingConfirmation: 'Waiting for payment confirmation... Scan with your phone camera to pay.',
+    qrOrderLabel: (num) => `Order #${num}`,
+    qrAmountToPay: 'Amount to Pay',
+    qrIvePaidNotifyCounter: "I've Paid — Notify Counter",
+    qrSimulateDemoBtn: 'Simulate Payment Approved (Demo Mode)',
+    qrPayAtCounterTitle: 'Pay at Counter',
+    qrPayAtCounterDesc: 'No phone handy? Confirm your order here and pay directly with our team at the counter.',
+    qrConfirmPayAtCounterBtn: 'Confirm & Pay at Counter',
+    qrPaymentConfirmedTitle: (num) => `Payment Confirmed! Order #${num} Sent to Kitchen!`,
+    qrManualVerificationTitle: (num) => `Order #${num} Sent — Counter Notified!`,
+    qrManualVerificationBadge: 'PENDING COUNTER VERIFICATION',
+    qrManualVerificationSub: 'Our team at the counter will confirm your payment right away.',
+    qrCreatingOrder: 'Preparing your order & QR Code...',
+    qrPreferPayAtCounterLink: 'Prefer to pay with Cash or Card at the counter?',
+    qrBackToQrPayment: 'Back to QR Code Payment',
+    mobilePayWithVenmo: 'Pay with Venmo',
+    mobilePayWithPaypal: 'Pay with PayPal',
+    mobilePayWithCashApp: 'Pay with Cash App',
+    mobilePayWithZelle: 'Pay with Zelle',
+    mobileDeepLinkSubtitle: 'Tap your preferred app below — total & order number are pre-filled automatically.',
+    mobileTapToOpenApp: 'Opens app with exact amount',
+    mobileCopyZelleAndAmount: 'Copy Zelle & Amount',
+    mobileZelleCopiedToast: 'Zelle info, amount & order number copied!',
+    mobileZelleMemoHint: (num) => `Include "Order #${num}" in the memo`,
+    mobileWaitingPaymentStatus: 'Waiting for payment confirmation... Complete payment in the app and return here.',
+    mobileIvePaidNotifyKitchen: "I've Paid — Notify Kitchen",
+    mobileSimulateDemoBtn: 'Simulate Payment (Demo Mode)',
+    mobilePaymentConfirmedHeadline: (num) => `Payment Confirmed! Order #${num} is now in the kitchen.`,
+    mobileManualVerifyHeadline: (num) => `Order #${num} Sent — Kitchen Notified!`,
+    mobileSaveReceiptTrackBtn: 'Save Receipt / Track Order',
+    mobileHideReceiptBtn: 'Hide Receipt',
+    mobileOrderStatusLabel: 'LIVE ORDER STATUS',
+    mobileOrderStatusPreparing: 'Preparing in Kitchen',
+    mobileOrderStatusReady: 'Ready for Pickup!',
+    mobileNoWalletsConfigured: 'No digital wallets are configured yet. Tap "I\'ve Paid — Notify Kitchen" below or configure Venmo, PayPal, Cash App or Zelle in Admin.',
   },
   es: {
     startOrder: 'TOCAR PARA ORDENAR',
@@ -359,8 +444,8 @@ export const KIOSK_TRANSLATIONS: Record<KioskLanguage, KioskDictionary> = {
     translatingMenu: 'Traduciendo menú...',
     mobilePickupBadge: 'RETIRO MÓVIL',
     mobilePickupIntroBottom: 'RETIRO EN TIENDA · SIN FILAS',
-    pwaBannerTitle: 'Añade a tu pantalla de inicio para pedidos más rápidos',
-    pwaBannerSubtitle: 'Instala nuestra app web para ordenar en un toque.',
+    pwaBannerTitle: 'Instala la App Easy Kioski en tu celular para pedir más rápido',
+    pwaBannerSubtitle: 'Acceso en un toque desde tu pantalla de inicio — sin filas.',
     pwaBannerInstallBtn: 'Instalar App',
     pwaBannerHowToBtn: 'Cómo Añadir',
     pwaModalTitle: 'Añadir a Pantalla de Inicio',
@@ -395,6 +480,47 @@ export const KIOSK_TRANSLATIONS: Record<KioskLanguage, KioskDictionary> = {
     pickupTimeSummaryLabel: 'HORARIO DE RETIRO',
     pickupReadyAsap: (mins) => `ASAP (~${mins} min)`,
     orderMoreItemsBtn: 'Hacer Otro Pedido',
+    introDefaultSubtitle: 'Autoservicio Artesanal',
+    introDefaultDescription: 'Explora nuestro menú artesanal, personaliza tus favoritos y paga en segundos.',
+    introDefaultBottom: 'EASY KIOSKI · KIOSCO DE AUTOSERVICIO',
+    qrSelectWalletTitle: 'Elige tu Método de Pago',
+    qrSelectWalletSubtitle: 'Escanea el código QR con la cámara de tu celular para pagar al instante.',
+    qrScanPrompt: 'Escanea con la cámara de tu celular para pagar',
+    qrWaitingConfirmation: 'Esperando confirmación del pago... Escanea con la cámara de tu celular para pagar.',
+    qrOrderLabel: (num) => `Pedido #${num}`,
+    qrAmountToPay: 'Monto a Pagar',
+    qrIvePaidNotifyCounter: 'Ya Pagué — Avisar en Caja',
+    qrSimulateDemoBtn: 'Simular Pago Aprobado (Modo Demo)',
+    qrPayAtCounterTitle: 'Pagar en Caja',
+    qrPayAtCounterDesc: '¿Sin celular a mano? Confirma tu pedido aquí y paga directamente en el mostrador.',
+    qrConfirmPayAtCounterBtn: 'Confirmar y Pagar en Caja',
+    qrPaymentConfirmedTitle: (num) => `¡Pago Confirmado! ¡Pedido #${num} Enviado a Cocina!`,
+    qrManualVerificationTitle: (num) => `¡Pedido #${num} Enviado — Caja Avisada!`,
+    qrManualVerificationBadge: 'VERIFICACIÓN EN CAJA',
+    qrManualVerificationSub: 'Nuestro equipo en el mostrador confirmará tu pago enseguida.',
+    qrCreatingOrder: 'Preparando tu pedido y código QR...',
+    qrPreferPayAtCounterLink: '¿Prefieres pagar con efectivo o tarjeta en el mostrador?',
+    qrBackToQrPayment: 'Volver al Pago con Código QR',
+    mobilePayWithVenmo: 'Pagar con Venmo',
+    mobilePayWithPaypal: 'Pagar con PayPal',
+    mobilePayWithCashApp: 'Pagar con Cash App',
+    mobilePayWithZelle: 'Pagar con Zelle',
+    mobileDeepLinkSubtitle: 'Toca tu app preferida abajo — el monto y número de pedido ya vienen listos.',
+    mobileTapToOpenApp: 'Abre la app con el monto exacto',
+    mobileCopyZelleAndAmount: 'Copiar Zelle y Monto',
+    mobileZelleCopiedToast: '¡Datos de Zelle, monto y número de pedido copiados!',
+    mobileZelleMemoHint: (num) => `Incluye "Order #${num}" en la nota (memo)`,
+    mobileWaitingPaymentStatus: 'Esperando confirmación de pago... Completa el pago en tu app y regresa aquí.',
+    mobileIvePaidNotifyKitchen: 'Ya Pagué — Avisar a la Cocina',
+    mobileSimulateDemoBtn: 'Simular Pago (Modo Demo)',
+    mobilePaymentConfirmedHeadline: (num) => `¡Pago Confirmado! El Pedido #${num} ya está en la cocina.`,
+    mobileManualVerifyHeadline: (num) => `¡Pedido #${num} Enviado — Cocina Avisada!`,
+    mobileSaveReceiptTrackBtn: 'Guardar Recibo / Rastrear Pedido',
+    mobileHideReceiptBtn: 'Ocultar Recibo',
+    mobileOrderStatusLabel: 'ESTADO EN VIVO',
+    mobileOrderStatusPreparing: 'Preparando en Cocina',
+    mobileOrderStatusReady: '¡Listo para Retirar!',
+    mobileNoWalletsConfigured: 'Aún no hay billeteras configuradas. Toca "Ya Pagué — Avisar a la Cocina" o configura Venmo, PayPal, Cash App o Zelle en Admin.',
   },
   pt: {
     startOrder: 'TOQUE PARA PEDIR',
@@ -482,8 +608,8 @@ export const KIOSK_TRANSLATIONS: Record<KioskLanguage, KioskDictionary> = {
     translatingMenu: 'Traduzindo cardápio...',
     mobilePickupBadge: 'RETIRADA MOBILE',
     mobilePickupIntroBottom: 'RETIRADA AGENDADA · SEM FILA',
-    pwaBannerTitle: 'Adicione à tela inicial para pedir mais rápido',
-    pwaBannerSubtitle: 'Instale nosso app para fazer pedidos de retirada com um toque.',
+    pwaBannerTitle: 'Instale o App Easy Kioski no seu celular para pedir mais rápido',
+    pwaBannerSubtitle: 'Acesso com um toque na sua tela inicial — retire sem fila.',
     pwaBannerInstallBtn: 'Instalar App',
     pwaBannerHowToBtn: 'Como Adicionar',
     pwaModalTitle: 'Adicionar à Tela Inicial',
@@ -518,6 +644,47 @@ export const KIOSK_TRANSLATIONS: Record<KioskLanguage, KioskDictionary> = {
     pickupTimeSummaryLabel: 'HORÁRIO DE RETIRADA',
     pickupReadyAsap: (mins) => `ASAP (~${mins} min)`,
     orderMoreItemsBtn: 'Fazer Novo Pedido',
+    introDefaultSubtitle: 'Autoatendimento Artesanal',
+    introDefaultDescription: 'Explore nosso cardápio artesanal, personalize seus favoritos e finalize em segundos.',
+    introDefaultBottom: 'EASY KIOSKI · TOTEM DE AUTOATENDIMENTO',
+    qrSelectWalletTitle: 'Escolha a Forma de Pagamento',
+    qrSelectWalletSubtitle: 'Aponte a câmera do seu celular para o QR Code para pagar na hora.',
+    qrScanPrompt: 'Escaneie com a câmera do celular para pagar',
+    qrWaitingConfirmation: 'Aguardando confirmação do pagamento... Escaneie com a câmera do celular para pagar.',
+    qrOrderLabel: (num) => `Pedido #${num}`,
+    qrAmountToPay: 'Valor a Pagar',
+    qrIvePaidNotifyCounter: 'Já Paguei — Avisar no Balcão',
+    qrSimulateDemoBtn: 'Simular Pagamento Aprovado (Modo Demo)',
+    qrPayAtCounterTitle: 'Pagar no Balcão',
+    qrPayAtCounterDesc: 'Sem celular agora? Confirme seu pedido aqui e pague diretamente com nossa equipe no balcão.',
+    qrConfirmPayAtCounterBtn: 'Confirmar e Pagar no Balcão',
+    qrPaymentConfirmedTitle: (num) => `Pagamento Confirmado! Pedido #${num} Enviado à Cozinha!`,
+    qrManualVerificationTitle: (num) => `Pedido #${num} Enviado — Balcão Avisado!`,
+    qrManualVerificationBadge: 'AGUARDANDO CONFERÊNCIA NO BALCÃO',
+    qrManualVerificationSub: 'Nossa equipe no balcão confirmará seu pagamento imediatamente.',
+    qrCreatingOrder: 'Preparando seu pedido e QR Code...',
+    qrPreferPayAtCounterLink: 'Prefere pagar em dinheiro ou cartão no balcão?',
+    qrBackToQrPayment: 'Voltar para Pagamento via QR Code',
+    mobilePayWithVenmo: 'Pagar com Venmo',
+    mobilePayWithPaypal: 'Pagar com PayPal',
+    mobilePayWithCashApp: 'Pagar com Cash App',
+    mobilePayWithZelle: 'Pagar com Zelle',
+    mobileDeepLinkSubtitle: 'Toque no seu app abaixo — o valor exato e o número do pedido já vão preenchidos.',
+    mobileTapToOpenApp: 'Abre o app com o valor exato',
+    mobileCopyZelleAndAmount: 'Copiar Zelle e Valor',
+    mobileZelleCopiedToast: 'Chave Zelle, valor e número do pedido copiados!',
+    mobileZelleMemoHint: (num) => `Inclua "Order #${num}" na descrição (memo)`,
+    mobileWaitingPaymentStatus: 'Aguardando confirmação do pagamento... Conclua no app e volte para esta tela.',
+    mobileIvePaidNotifyKitchen: 'Já Paguei — Avisar a Cozinha',
+    mobileSimulateDemoBtn: 'Simular Pagamento (Modo Demo)',
+    mobilePaymentConfirmedHeadline: (num) => `Pagamento Confirmado! Pedido #${num} já está na cozinha.`,
+    mobileManualVerifyHeadline: (num) => `Pedido #${num} Enviado — Cozinha Avisada!`,
+    mobileSaveReceiptTrackBtn: 'Salvar Recibo / Acompanhar Pedido',
+    mobileHideReceiptBtn: 'Ocultar Recibo',
+    mobileOrderStatusLabel: 'STATUS EM TEMPO REAL',
+    mobileOrderStatusPreparing: 'Preparando na Cozinha',
+    mobileOrderStatusReady: 'Pronto para Retirada!',
+    mobileNoWalletsConfigured: 'Nenhuma carteira digital configurada ainda. Toque em "Já Paguei — Avisar a Cozinha" ou configure Venmo, PayPal, Cash App ou Zelle no Painel Admin.',
   }
 };
 

@@ -1675,42 +1675,72 @@ export default function Menu({
       !!selectedProductForDetails);
 
   if (activeScreen === 'intro') {
-    const rawIntroButton = settings.introButtonText || '';
-    const isDefaultPtButton = !rawIntroButton || /ACESSAR NOSSO CARD|INICIAR/i.test(rawIntroButton);
-    const displayIntroButton =
-      activeLanguage !== 'pt' && isDefaultPtButton
-        ? k.startOrder
-        : rawIntroButton || k.startOrder;
+    const langKey = activeLanguage; // 'en' | 'es' | 'pt'
 
-    const rawIntroBottom = settings.introBottomText || '';
-    const isDefaultPtBottom = !rawIntroBottom || /TECNOLOGIA PARA O SEU NEG|CURSOS DE/i.test(rawIntroBottom);
-    const defaultBottomLabel = isMobilePickup
-      ? k.mobilePickupIntroBottom
-      : activeLanguage === 'es'
-        ? 'KIOSCO DE AUTOSERVICIO'
-        : activeLanguage === 'pt'
-          ? 'TOTEM DE AUTOATENDIMENTO'
-          : 'SELF-SERVICE KIOSK';
+    const rawIntroButton = (settings.introButtonText || '').trim();
+    const localizedBtn =
+      langKey === 'es'
+        ? settings.introButtonText_es
+        : langKey === 'pt'
+          ? settings.introButtonText_pt
+          : settings.introButtonText_en;
+    const isDefaultButton =
+      !rawIntroButton ||
+      /^(ACESSAR NOSSO CARD|INICIAR|TAP TO START ORDER|TAP TO ORDER|TOCAR PARA ORDENAR|TOQUE PARA PEDIR)/i.test(rawIntroButton);
+    const displayIntroButton =
+      (localizedBtn && localizedBtn.trim()) ||
+      (isDefaultButton ? k.startOrder : rawIntroButton);
+
+    const rawIntroBottom = (settings.introBottomText || '').trim();
+    const localizedBottom =
+      langKey === 'es'
+        ? settings.introBottomText_es
+        : langKey === 'pt'
+          ? settings.introBottomText_pt
+          : settings.introBottomText_en;
+    const isDefaultBottom =
+      !rawIntroBottom ||
+      /TECNOLOGIA PARA O SEU NEG|CURSOS DE|EASY TOTEM|EASY KIOSKI|SELF-SERVICE KIOSK|KIOSCO DE AUTOSERVICIO|TOTEM DE AUTOATENDIMENTO/i.test(rawIntroBottom);
     const displayIntroBottom = isMobilePickup
       ? k.mobilePickupIntroBottom
-      : activeLanguage !== 'pt' && isDefaultPtBottom
-        ? defaultBottomLabel
-        : rawIntroBottom || defaultBottomLabel;
+      : (localizedBottom && localizedBottom.trim()) ||
+        (isDefaultBottom ? k.introDefaultBottom : rawIntroBottom);
 
-    const rawIntroSubtitle = settings.introSubtitle || '';
-    const isDefaultPtSubtitle = !rawIntroSubtitle || /Cardápio Especial|Aprenda Gastronomia/i.test(rawIntroSubtitle);
+    const rawIntroSubtitle = (settings.introSubtitle || '').trim();
+    const localizedSub =
+      langKey === 'es'
+        ? settings.introSubtitle_es
+        : langKey === 'pt'
+          ? settings.introSubtitle_pt
+          : settings.introSubtitle_en;
+    const isDefaultSubtitle =
+      !rawIntroSubtitle ||
+      /Cardápio Especial|Aprenda Gastronomia|Artisanal Self-Service|Self-Service Kiosk|Autoservicio|Autoatendimento/i.test(rawIntroSubtitle);
     const mobileDefaultSubtitle =
-      activeLanguage === 'es'
+      langKey === 'es'
         ? 'Retiro Móvil'
-        : activeLanguage === 'pt'
+        : langKey === 'pt'
           ? 'Retirada Mobile'
           : 'Mobile Pickup';
-    const displayIntroSubtitle =
-      isMobilePickup
-        ? (rawIntroSubtitle && !isDefaultPtSubtitle ? rawIntroSubtitle : mobileDefaultSubtitle)
-        : activeLanguage !== 'pt' && isDefaultPtSubtitle
-          ? (activeLanguage === 'es' ? 'Autoservicio Premium' : 'Self-Service Kiosk')
-          : rawIntroSubtitle || 'Self-Service Kiosk';
+    const displayIntroSubtitle = isMobilePickup
+      ? (localizedSub && localizedSub.trim()) ||
+        (rawIntroSubtitle && !isDefaultSubtitle ? rawIntroSubtitle : mobileDefaultSubtitle)
+      : (localizedSub && localizedSub.trim()) ||
+        (isDefaultSubtitle ? k.introDefaultSubtitle : rawIntroSubtitle);
+
+    const rawIntroDesc = (settings.introDescription || '').trim();
+    const localizedDesc =
+      langKey === 'es'
+        ? settings.introDescription_es
+        : langKey === 'pt'
+          ? settings.introDescription_pt
+          : settings.introDescription_en;
+    const isDefaultDesc =
+      !rawIntroDesc ||
+      /Explore our handcrafted menu|Browse our artisan menu|Explora nuestro menú artesanal|Explore nosso cardápio artesanal/i.test(rawIntroDesc);
+    const displayIntroDescription =
+      (localizedDesc && localizedDesc.trim()) ||
+      (isDefaultDesc ? k.introDefaultDescription : rawIntroDesc);
 
     return (
       <div className="flex-grow flex flex-col items-center justify-center min-h-screen p-4 pt-16 sm:pt-4 select-none relative">
@@ -1815,7 +1845,7 @@ export default function Menu({
               } font-medium italic mx-auto`}
               style={{ color: theme.textMuted }}
             >
-              {settings.introDescription || (activeLanguage === 'es' ? 'Explora nuestro menú artesanal, personaliza tu pedido y paga al instante.' : 'Browse our artisan menu, customize your favorites, and pay in seconds.')}
+              {displayIntroDescription}
             </p>
           </div>
 
@@ -2131,15 +2161,31 @@ export default function Menu({
       </h1>
 
       {(() => {
+        const localizedSlogan =
+          activeLanguage === 'es'
+            ? settings.slogan_es
+            : activeLanguage === 'pt'
+              ? settings.slogan_pt
+              : settings.slogan_en;
+        const rawCatalog1Slogan = (settings.catalog1Slogan || settings.catalog1Desc || settings.slogan || '').trim();
+        const isDefaultCraftedSlogan =
+          /Crafted fresh to order with artisanal ingredients|Artisanal flavors crafted fresh to order|O sabor que você merece/i.test(rawCatalog1Slogan);
+        const fallbackTranslatedSlogan =
+          activeLanguage === 'es'
+            ? 'Preparado fresco al momento con ingredientes artesanales'
+            : activeLanguage === 'pt'
+              ? 'Preparado fresco na hora com ingredientes artesanais'
+              : 'Crafted fresh to order with artisanal ingredients';
+
         const text = selectedCatalog === 'catalog1'
-          ? (settings.catalog1Slogan || settings.catalog1Desc || settings.slogan || '')
+          ? (localizedSlogan?.trim() || (isDefaultCraftedSlogan ? fallbackTranslatedSlogan : rawCatalog1Slogan))
           : selectedCatalog === 'catalog2'
-            ? (settings.catalog2Slogan || settings.catalog2Desc || settings.slogan || '')
+            ? (settings.catalog2Slogan || settings.catalog2Desc || localizedSlogan || settings.slogan || '')
             : selectedCatalog === 'catalog3'
-              ? (settings.catalog3Slogan || settings.catalog3Desc || settings.slogan || '')
+              ? (settings.catalog3Slogan || settings.catalog3Desc || localizedSlogan || settings.slogan || '')
               : selectedCatalog === 'catalog4'
-                ? (settings.catalog4Slogan || settings.catalog4Desc || settings.slogan || '')
-                : (settings.slogan || 'O sabor que você merece, a um clique de distância.');
+                ? (settings.catalog4Slogan || settings.catalog4Desc || localizedSlogan || settings.slogan || '')
+                : (localizedSlogan?.trim() || (isDefaultCraftedSlogan ? fallbackTranslatedSlogan : (settings.slogan || fallbackTranslatedSlogan)));
 
         if (selectedCatalog) {
           const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);

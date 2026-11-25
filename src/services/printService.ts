@@ -184,6 +184,10 @@ export function buildCustomerEscPos(order: Order, settings: Settings): string[] 
   if (order.tipAmount !== undefined && order.tipAmount > 0) {
     lines.push(`Tip: ${formatMoney(order.tipAmount, currency)}\n`);
   }
+  const statusLine =
+    order.paymentStatus === 'manual_verification'
+      ? `\n*** VERIFY PAYMENT (${formatMoney(order.total, currency)}) ***\n`
+      : `\n*** STATUS: PAID ***\n`;
   lines.push(
     divider,
     BOLD_ON,
@@ -191,7 +195,7 @@ export function buildCustomerEscPos(order: Order, settings: Settings): string[] 
     `TOTAL: ${formatMoney(order.total, currency)}\n`,
     SIZE_NORMAL,
     ALIGN_CENTER,
-    `\n*** STATUS: PAID ***\n`,
+    statusLine,
     BOLD_OFF,
     `Thank you for your order!\n`,
     CUT_PAPER

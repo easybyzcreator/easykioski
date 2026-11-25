@@ -7,36 +7,50 @@ import {
   Minus,
   UtensilsCrossed,
   ShoppingBag,
-  CreditCard,
-  Smartphone,
   Check,
   Printer,
   Lock,
   Sparkles,
-  Wifi,
   ChevronRight,
   RotateCcw,
+  QrCode,
+  BellRing,
+  Store,
+  Loader2,
+  CheckCircle2,
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { CartItem, Order, OrderItem, OrderModality, Product, Settings } from '../types';
 import { formatMoney, getKioskDict, KioskLanguage } from '../utils/kioskI18n';
 import { getContrastText } from '../utils/orderUtils';
 import { getBrandTheme } from '../utils/brandTheme';
 import { generateNextDailyOrderNumber } from '../services/orderNumberService';
 import {
-  cancelTerminalPayment,
-  initiateTerminalPayment,
-  pollTerminalStatus,
-  resolveTerminalProvider,
-  simulateTerminalApproval,
-  TerminalCheckoutSession,
-} from '../services/paymentTerminalService';
+  buildTotemQrPaymentUrl,
+  DEFAULT_DEMO_CASHAPP,
+  DEFAULT_DEMO_PAYPAL,
+  DEFAULT_DEMO_VENMO,
+  getAvailableTotemQrWallets,
+  sanitizeCashAppTag,
+  sanitizePaypalUsername,
+  sanitizeVenmoUsername,
+  TotemQrOnlyMethod,
+} from '../services/appsScriptGenerator';
 import {
   DualPrintResult,
   printDualOrderReceipts,
   triggerBrowserIframePrint,
 } from '../services/printService';
 import { db } from '../firebase';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  serverTimestamp,
+  updateDoc,
+} from 'firebase/firestore';
 import { toast } from 'sonner';
 
 interface TotemCheckoutModalProps {
@@ -98,7 +112,12 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
   const primaryColor = theme.primary;
   const primaryContrast = theme.primaryContrast;
   const taxRate = typeof settings.salesTaxRate === 'number' ? settings.salesTaxRate : 7.75;
-  const terminalProvider = resolveTerminalProvider(settings);
+  const availableQrWallets = useMemo(() => getAvailableTotemQrWallets(settings), [
+    settings.venmoUsername,
+    settings.paypalMeUsername,
+    settings.cashAppTag,
+  ]);
+  const allowPayAtCounter = settings.allowPayAtCounter !== false;
 
   const [step, setStep] = useState<CheckoutStep>('review');
   const [orderType, setOrderType] = useState<OrderModality>('dine_in');
@@ -110,9 +129,12 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
   const [tipSelection, setTipSelection] = useState<'none' | '15' | '18' | '20' | 'custom'>('18');
   const [customTipInput, setCustomTipInput] = useState('');
 
-  // Payment Terminal State
-  const [terminalSession, setTerminalSession] = useState<TerminalCheckoutSession | null>(null);
-  const [isAuthorizing, setIsAuthorizing] = useState(false);
+  // Dynamic QR Code Payment State
+  const [selectedWallet, setSelectedWallet] = useState<TotemQrOnlyMethod>('venmo');
+  const [showCounterView, setShowCounterView] = useState(false);
+  const [pendingOrder, setPendingOrder] = useState<Order | null>(null);
+  const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [isUpdatingPayment, setIsUpdatingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
   // Confirmed Order & Dual Printing State
@@ -120,9 +142,9 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
   const [printResult, setPrintResult] = useState<DualPrintResult | null>(null);
   const [isPrinting, setIsPrinting] = useState(false);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
-  const [autoResetCountdown, setAutoResetCountdown] = useState(14);
+  const [autoResetCountdown, setAutoResetCountdown] = useState(8);
 
-  const pollIntervalRef = useRef<number | null>(null);
+  const confirmedLockRef = useRef<boolean>(false);
 
   // Reset internal modal state when opened cleanly
   useEffect(() => {
@@ -134,18 +156,20 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
       setOrderNote('');
       setTipSelection('18');
       setCustomTipInput('');
-      setTerminalSession(null);
-      setIsAuthorizing(false);
+      setSelectedWallet(availableQrWallets[0] || 'venmo');
+      setShowCounterView(false);
+      setPendingOrder(null);
+      setIsCreatingOrder(false);
+      setIsUpdatingPayment(false);
       setPaymentError(null);
       setConfirmedOrder(null);
       setPrintResult(null);
       setIsPrinting(false);
       setShowReceiptPreview(false);
-      setAutoResetCountdown(14);
-    } else if (pollIntervalRef.current) {
-      window.clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
+      setAutoResetCountdown(8);
+      confirmedLockRef.current = false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   // Calculate financial breakdown
@@ -231,19 +255,72 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
     });
   };
 
-  const finalizePaidOrder = async (approvedSession: TerminalCheckoutSession) => {
-    if (pollIntervalRef.current) {
-      window.clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
+  const completeConfirmedTotemOrder = async (finalOrder: Order) => {
+    if (confirmedLockRef.current) return;
+    confirmedLockRef.current = true;
 
-    setIsAuthorizing(true);
+    setConfirmedOrder(finalOrder);
+    setAutoResetCountdown(8);
+    setStep('success');
+    setCart([]);
+
+    // Automatically trigger Dual 80mm Printing (Via 1: Customer Receipt + Via 2: Kitchen Ticket)
+    setIsPrinting(true);
+    try {
+      const pResult = await printDualOrderReceipts(finalOrder, settings);
+      setPrintResult(pResult);
+      if (pResult.mode === 'qz-tray') {
+        toast.success(t.receiptsPrinted);
+      }
+    } catch (err) {
+      console.warn('[TotemCheckout] Print warning:', err);
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  // Real-time Firestore listener on the active pending order document
+  useEffect(() => {
+    if (!isOpen || step !== 'payment' || !pendingOrder?.id) return;
+    const orderDocRef = doc(db, 'pedidos', pendingOrder.id);
+
+    const unsubscribe = onSnapshot(
+      orderDocRef,
+      (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data() as Partial<Order>;
+        if (data.paymentStatus === 'paid' && !confirmedLockRef.current) {
+          const updatedOrder: Order = {
+            ...pendingOrder,
+            ...data,
+            id: pendingOrder.id,
+            paymentStatus: 'paid',
+          };
+          void completeConfirmedTotemOrder(updatedOrder);
+        }
+      },
+      (err) => {
+        console.warn('[TotemCheckout] Real-time payment listener error:', err);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [isOpen, step, pendingOrder]);
+
+  const startQrPaymentStep = async () => {
+    setStep('payment');
+    setPaymentError(null);
+    setIsCreatingOrder(true);
+    confirmedLockRef.current = false;
+    setSelectedWallet(availableQrWallets[0] || 'venmo');
+    setShowCounterView(false);
+
     try {
       const orderNumber = await generateNextDailyOrderNumber();
       const items = buildOrderItems();
       const nowDate = new Date();
 
-      const newOrderPayload = cleanFirestoreObject({
+      const pendingPayload = cleanFirestoreObject({
         orderNumber,
         customerName: firstName.trim() || 'Guest',
         tableOrPager: tableOrPager.trim() || undefined,
@@ -261,9 +338,7 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
         tipAmount,
         tipPercent,
         total: grandTotal,
-        paymentStatus: 'paid' as const,
-        paymentProvider: approvedSession.provider,
-        paymentTransactionId: approvedSession.transactionId || approvedSession.checkoutId,
+        paymentStatus: 'awaiting_payment' as const,
         kitchenStatus: 'preparing' as const,
         orderLanguage: language,
         source: 'kiosk' as const,
@@ -271,102 +346,83 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
         createdAt: serverTimestamp(),
       });
 
-      let savedId = `kiosk_${Date.now()}`;
-      try {
-        const docRef = await addDoc(collection(db, 'pedidos'), newOrderPayload);
-        savedId = docRef.id;
-      } catch (fsErr) {
-        console.warn('[TotemCheckout] Firestore save warning:', fsErr);
-      }
+      const docRef = await addDoc(collection(db, 'pedidos'), pendingPayload);
 
-      const finalOrder: Order = {
-        ...newOrderPayload,
-        id: savedId,
+      setPendingOrder({
+        ...pendingPayload,
+        id: docRef.id,
         createdAt: nowDate,
-      } as Order;
-
-      setConfirmedOrder(finalOrder);
-      setStep('success');
-      setCart([]);
-
-      // Simultaneously trigger Dual 80mm Printing (Via 1: Customer Receipt + Via 2: Kitchen Ticket)
-      setIsPrinting(true);
-      const pResult = await printDualOrderReceipts(finalOrder, settings);
-      setPrintResult(pResult);
-      setIsPrinting(false);
-
-      if (pResult.mode === 'qz-tray') {
-        toast.success(t.receiptsPrinted);
-      }
+      } as Order);
     } catch (err) {
-      console.error('[TotemCheckout] Error finalizing paid order:', err);
-      toast.error('Failed to finalize order. Please try again.');
+      console.error('[TotemCheckout] Failed to create pending order:', err);
+      setPaymentError('Could not initialize order. Please try again.');
+      toast.error('Failed to prepare payment order.');
     } finally {
-      setIsAuthorizing(false);
+      setIsCreatingOrder(false);
     }
   };
 
-  const startTerminalPaymentStep = async () => {
-    setStep('payment');
-    setPaymentError(null);
-    setIsAuthorizing(false);
-
-    const session = await initiateTerminalPayment(
-      {
-        amount: grandTotal,
-        currency,
-        referenceId: `kiosk_${Date.now()}`,
-        customerName: firstName.trim() || 'Guest',
-        note: `${orderType === 'dine_in' ? 'DINE-IN' : 'TAKEOUT'} - ${firstName.trim()}`,
-      },
-      settings
-    );
-
-    setTerminalSession(session);
-
-    if (session.status === 'FAILED') {
-      setPaymentError(session.errorMessage || 'Terminal unavailable.');
-      return;
-    }
-
-    if (session.isLiveApi) {
-      pollIntervalRef.current = window.setInterval(async () => {
-        const updated = await pollTerminalStatus(session);
-        setTerminalSession(updated);
-        if (updated.status === 'COMPLETED') {
-          await finalizePaidOrder(updated);
-        } else if (updated.status === 'FAILED' || updated.status === 'CANCELED') {
-          if (pollIntervalRef.current) {
-            window.clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-          }
-          setPaymentError(updated.errorMessage || 'Payment declined or canceled.');
-        }
-      }, 2000);
-    }
-  };
-
-  const handleSimulatePayment = async () => {
-    if (!terminalSession || isAuthorizing) return;
-    setIsAuthorizing(true);
+  const handleSimulateDemoApproval = async () => {
+    if (!pendingOrder || isUpdatingPayment) return;
+    setIsUpdatingPayment(true);
     setPaymentError(null);
     try {
-      const approved = await simulateTerminalApproval(terminalSession);
-      setTerminalSession(approved);
-      await finalizePaidOrder(approved);
-    } catch {
-      setPaymentError('Simulation failed. Please retry.');
-      setIsAuthorizing(false);
+      const provider = showCounterView ? 'demo' : selectedWallet;
+      await updateDoc(doc(db, 'pedidos', pendingOrder.id), {
+        paymentStatus: 'paid',
+        paymentProvider: provider,
+        paymentConfirmedAt: serverTimestamp(),
+      });
+      // Fallback in case snapshot fires with delay
+      await completeConfirmedTotemOrder({
+        ...pendingOrder,
+        paymentStatus: 'paid',
+        paymentProvider: provider,
+      });
+    } catch (err) {
+      console.error('[TotemCheckout] Demo approval error:', err);
+      setPaymentError('Demo simulation failed. Please try again.');
+    } finally {
+      setIsUpdatingPayment(false);
     }
+  };
+
+  const handleManualVerificationOrCounter = async (providerOverride?: 'counter' | 'venmo' | 'paypal' | 'cashapp') => {
+    if (!pendingOrder || isUpdatingPayment) return;
+    setIsUpdatingPayment(true);
+    setPaymentError(null);
+    try {
+      const provider = providerOverride || selectedWallet || 'counter';
+      await updateDoc(doc(db, 'pedidos', pendingOrder.id), {
+        paymentStatus: 'manual_verification',
+        paymentProvider: provider,
+      });
+      await completeConfirmedTotemOrder({
+        ...pendingOrder,
+        paymentStatus: 'manual_verification',
+        paymentProvider: provider,
+      });
+    } catch (err) {
+      console.error('[TotemCheckout] Manual verification error:', err);
+      setPaymentError('Could not notify counter. Please ask staff for assistance.');
+    } finally {
+      setIsUpdatingPayment(false);
+    }
+  };
+
+  const cleanupPendingOrderIfUnpaid = async () => {
+    if (pendingOrder?.id && !confirmedLockRef.current) {
+      try {
+        await deleteDoc(doc(db, 'pedidos', pendingOrder.id));
+      } catch {
+        // Ignore cleanup failure if rules disallow delete
+      }
+    }
+    setPendingOrder(null);
   };
 
   const handleCancelPaymentStep = async () => {
-    if (pollIntervalRef.current) {
-      window.clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-    await cancelTerminalPayment(terminalSession);
-    setTerminalSession(null);
+    await cleanupPendingOrderIfUnpaid();
     setPaymentError(null);
     setStep('tip');
   };
@@ -377,7 +433,7 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
       return;
     }
     if (step === 'payment') {
-      cancelTerminalPayment(terminalSession);
+      void cleanupPendingOrderIfUnpaid();
     }
     onClose();
   };
@@ -930,11 +986,11 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
 
                   <button
                     type="button"
-                    onClick={startTerminalPaymentStep}
+                    onClick={startQrPaymentStep}
                     className="w-full min-h-[60px] rounded-2xl font-bold text-lg shadow-xl flex items-center justify-center gap-3 active:scale-[0.98] transition-all cursor-pointer"
                     style={{ backgroundColor: primaryColor, color: primaryContrast }}
                   >
-                    <CreditCard size={22} />
+                    <QrCode size={22} />
                     <span>
                       {t.proceedToPayment} · {formatMoney(grandTotal, currency)}
                     </span>
@@ -942,124 +998,362 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
                 </div>
               )}
 
-              {/* STEP 3: PAYMENT TERMINAL READER */}
+              {/* STEP 3: DYNAMIC QR CODE PAYMENT (VENMO / PAYPAL / CASH APP HERO + DISCREET COUNTER LINK) */}
               {step === 'payment' && (
-                <div className="py-6 flex flex-col items-center text-center space-y-7">
-                  {/* Animated Contactless / Apple Pay Visual */}
-                  <div className="relative flex items-center justify-center w-36 h-36">
-                    <motion.div
-                      animate={{ scale: [1, 1.35, 1], opacity: [0.35, 0.05, 0.35] }}
-                      transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
-                      className="absolute inset-0 rounded-full"
-                      style={{ backgroundColor: primaryColor }}
-                    />
-                    <motion.div
-                      animate={{ scale: [1, 1.18, 1], opacity: [0.55, 0.15, 0.55] }}
-                      transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut', delay: 0.3 }}
-                      className="absolute inset-4 rounded-full"
-                      style={{ backgroundColor: primaryColor }}
-                    />
-                    <div
-                      className="relative w-24 h-24 rounded-full shadow-2xl flex items-center justify-center"
-                      style={{ backgroundColor: primaryColor, color: primaryContrast }}
-                    >
-                      <div className="flex items-center gap-1">
-                        <Smartphone size={26} />
-                        <Wifi size={22} className="rotate-90" />
+                <div className="py-1 flex flex-col items-center text-center space-y-5">
+                  {isCreatingOrder ? (
+                    <div className="py-16 flex flex-col items-center gap-4">
+                      <Loader2 size={40} className="animate-spin" style={{ color: primaryColor }} />
+                      <p className="text-sm font-bold" style={{ color: theme.textMuted }}>
+                        {t.qrCreatingOrder}
+                      </p>
+                    </div>
+                  ) : !showCounterView ? (
+                    <>
+                      {/* PRIMARY HERO: Large Wallet Buttons (Venmo, PayPal, Cash App ONLY) */}
+                      <div className="w-full max-w-lg space-y-2.5">
+                        <p className="text-xs font-black uppercase tracking-widest" style={{ color: theme.textMuted }}>
+                          {t.qrSelectWalletTitle}
+                        </p>
+                        <div
+                          className={`grid gap-3 ${
+                            availableQrWallets.length === 1
+                              ? 'grid-cols-1 max-w-xs mx-auto'
+                              : availableQrWallets.length === 2
+                                ? 'grid-cols-2'
+                                : 'grid-cols-3'
+                          }`}
+                        >
+                          {availableQrWallets.map((method) => {
+                            const active = selectedWallet === method;
+                            const label =
+                              method === 'venmo'
+                                ? 'Venmo'
+                                : method === 'paypal'
+                                  ? 'PayPal'
+                                  : 'Cash App';
+                            const monogram =
+                              method === 'venmo' ? 'V' : method === 'paypal' ? 'P' : '$';
+                            const brandAccent =
+                              method === 'venmo'
+                                ? '#008CFF'
+                                : method === 'paypal'
+                                  ? '#003087'
+                                  : '#00C244';
+
+                            return (
+                              <motion.button
+                                key={method}
+                                type="button"
+                                whileTap={{ scale: 0.96 }}
+                                onClick={() => setSelectedWallet(method)}
+                                className="min-h-[68px] px-3 py-3 rounded-2xl border-2 font-black text-sm sm:text-base flex flex-col sm:flex-row items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                                style={{
+                                  backgroundColor: active ? brandAccent : theme.cardBgSolid,
+                                  borderColor: active ? brandAccent : theme.primaryBorder,
+                                  color: active ? '#ffffff' : theme.text,
+                                  boxShadow: active ? `0 10px 24px -6px ${brandAccent}66` : undefined,
+                                }}
+                              >
+                                <span
+                                  className="w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm shrink-0"
+                                  style={{
+                                    backgroundColor: active ? 'rgba(255,255,255,0.22)' : `${brandAccent}1A`,
+                                    color: active ? '#ffffff' : brandAccent,
+                                  }}
+                                >
+                                  {monogram}
+                                </span>
+                                <span className="truncate">{label}</span>
+                              </motion.button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  </div>
 
-                  <div className="space-y-2 max-w-md">
-                    <div className="font-serif font-black text-4xl tabular-nums text-stone-900">
-                      {formatMoney(grandTotal, currency)}
-                    </div>
-                    <h3 className="text-lg sm:text-xl font-serif font-bold text-stone-900 text-balance">
-                      {t.tapInsertSwipe}
-                    </h3>
-                    <p className="text-xs font-semibold tracking-wide text-stone-500 pt-1">
-                      {t.acceptedMethods}
-                    </p>
-                  </div>
+                      {/* CENTER HERO: Large Scannable QR Code Card */}
+                      {pendingOrder &&
+                        (() => {
+                          const orderNum = pendingOrder.orderNumber || 100;
+                          const qrUrl = buildTotemQrPaymentUrl(selectedWallet, settings, grandTotal, orderNum);
+                          const handleLabel =
+                            selectedWallet === 'venmo'
+                              ? `@${sanitizeVenmoUsername(settings.venmoUsername) || DEFAULT_DEMO_VENMO}`
+                              : selectedWallet === 'paypal'
+                                ? `paypal.me/${sanitizePaypalUsername(settings.paypalMeUsername) || DEFAULT_DEMO_PAYPAL}`
+                                : `$${sanitizeCashAppTag(settings.cashAppTag) || DEFAULT_DEMO_CASHAPP}`;
+                          const walletTitle =
+                            selectedWallet === 'venmo'
+                              ? 'Venmo'
+                              : selectedWallet === 'paypal'
+                                ? 'PayPal'
+                                : 'Cash App';
 
-                  {/* Provider / Reader Connection State */}
-                  <div className="w-full max-w-sm bg-white/80 rounded-2xl px-4 py-3 border border-black/8 flex items-center justify-between text-xs text-stone-600">
-                    <span className="font-semibold">
-                      {terminalProvider === 'square'
-                        ? 'Square Terminal'
-                        : terminalProvider === 'zettle'
-                        ? 'PayPal Zettle Reader'
-                        : 'Demo Terminal Mode'}
-                    </span>
-                    <span className="font-bold text-stone-900">
-                      {isAuthorizing ? t.processingPayment : t.waitingReader}
-                    </span>
-                  </div>
+                          return (
+                            <motion.div
+                              key={selectedWallet}
+                              initial={{ opacity: 0, scale: 0.96 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              className="w-full max-w-md rounded-[32px] p-5 sm:p-6 border shadow-xl flex flex-col items-center space-y-4"
+                              style={{
+                                backgroundColor: theme.cardBgSolid,
+                                borderColor: theme.primaryBorder,
+                              }}
+                            >
+                              {/* Order # + Exact Total Header */}
+                              <div
+                                className="w-full flex items-center justify-between px-4 py-2.5 rounded-2xl border"
+                                style={{
+                                  backgroundColor: theme.primaryTint05,
+                                  borderColor: theme.primaryBorder,
+                                }}
+                              >
+                                <div className="text-left min-w-0">
+                                  <div className="text-[10px] font-bold uppercase tracking-widest truncate" style={{ color: theme.textMuted }}>
+                                    {walletTitle} · {handleLabel}
+                                  </div>
+                                  <div className="text-base font-serif font-black" style={{ color: theme.text }}>
+                                    {t.qrOrderLabel(orderNum)}
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: theme.textMuted }}>
+                                    {t.qrAmountToPay}
+                                  </div>
+                                  <div className="text-2xl font-serif font-black tabular-nums" style={{ color: primaryColor }}>
+                                    {formatMoney(grandTotal, currency)}
+                                  </div>
+                                </div>
+                              </div>
 
-                  {paymentError && (
-                    <div className="w-full max-w-md p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold">
-                      {paymentError}
-                    </div>
-                  )}
+                              {/* High-Contrast Large Local SVG QR Code */}
+                              <div className="p-4 sm:p-5 bg-white rounded-3xl shadow-inner border border-black/10 flex items-center justify-center">
+                                <QRCodeSVG
+                                  value={qrUrl}
+                                  size={240}
+                                  level="M"
+                                  bgColor="#FFFFFF"
+                                  fgColor="#111111"
+                                />
+                              </div>
 
-                  {/* Actions */}
-                  <div className="w-full max-w-sm space-y-3 pt-2">
-                    {/* Discreet Simulate Approved Payment button — ONLY visible in simulation mode */}
-                    {terminalProvider === 'simulation' && (
+                              {/* Animated Waiting Indicator */}
+                              <div
+                                className="w-full px-4 py-3 rounded-2xl border flex items-center justify-center gap-2.5 text-xs font-bold leading-snug"
+                                style={{
+                                  backgroundColor: theme.primaryTint08,
+                                  borderColor: theme.primaryBorder,
+                                  color: theme.text,
+                                }}
+                              >
+                                <span className="relative flex h-3 w-3 shrink-0">
+                                  <span
+                                    className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                                    style={{ backgroundColor: primaryColor }}
+                                  />
+                                  <span
+                                    className="relative inline-flex rounded-full h-3 w-3"
+                                    style={{ backgroundColor: primaryColor }}
+                                  />
+                                </span>
+                                <span>{t.qrWaitingConfirmation}</span>
+                              </div>
+                            </motion.div>
+                          );
+                        })()}
+
+                      {paymentError && (
+                        <div className="w-full max-w-md p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold">
+                          {paymentError}
+                        </div>
+                      )}
+
+                      {/* Action Footer: Manual Notify Counter, Optional Demo Button, Cancel, and Discreet Counter Link */}
+                      <div className="w-full max-w-md space-y-2.5 pt-1">
+                        <button
+                          type="button"
+                          disabled={isUpdatingPayment || !pendingOrder}
+                          onClick={() => handleManualVerificationOrCounter(selectedWallet)}
+                          className="w-full min-h-[50px] px-4 rounded-2xl border-2 font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50"
+                          style={{
+                            backgroundColor: theme.cardBgSolid,
+                            borderColor: theme.primaryBorderStrong,
+                            color: theme.text,
+                          }}
+                        >
+                          <BellRing size={16} style={{ color: primaryColor }} />
+                          <span>{t.qrIvePaidNotifyCounter}</span>
+                        </button>
+
+                        {/* Discreet Simulate Approved Payment — ONLY visible when Demo Mode toggle is ON in Admin */}
+                        {Boolean(settings.totemDemoMode) && (
+                          <button
+                            type="button"
+                            disabled={isUpdatingPayment || !pendingOrder}
+                            onClick={handleSimulateDemoApproval}
+                            className="w-full min-h-[46px] px-4 rounded-2xl font-bold text-xs uppercase tracking-wider shadow-md flex items-center justify-center gap-2 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50"
+                            style={{ backgroundColor: '#15803d', color: '#ffffff' }}
+                          >
+                            <Sparkles size={15} />
+                            <span>{isUpdatingPayment ? t.processingPayment : t.qrSimulateDemoBtn}</span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          disabled={isUpdatingPayment}
+                          onClick={handleCancelPaymentStep}
+                          className="w-full min-h-[44px] rounded-2xl bg-white/80 hover:bg-white border border-black/10 font-bold text-xs text-stone-700 active:scale-[0.98] transition-all cursor-pointer"
+                        >
+                          {t.cancelPayment}
+                        </button>
+
+                        {/* Secondary & Discreet Pay at Counter Footer Link */}
+                        {allowPayAtCounter && (
+                          <div className="pt-2">
+                            <button
+                              type="button"
+                              disabled={isUpdatingPayment}
+                              onClick={() => setShowCounterView(true)}
+                              className="inline-flex items-center justify-center gap-1.5 text-xs font-semibold underline underline-offset-4 opacity-70 hover:opacity-100 transition-opacity cursor-pointer py-1.5 px-3"
+                              style={{ color: theme.textMuted }}
+                            >
+                              <Store size={13} />
+                              <span>{t.qrPreferPayAtCounterLink}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    /* Secondary Pay at Counter Confirmation View (only opened via discreet footer link) */
+                    <div className="w-full max-w-md space-y-4 py-2">
+                      <div
+                        className="w-full rounded-[30px] p-6 border shadow-lg flex flex-col items-center space-y-4"
+                        style={{
+                          backgroundColor: theme.cardBgSolid,
+                          borderColor: theme.primaryBorder,
+                        }}
+                      >
+                        <div
+                          className="w-16 h-16 rounded-3xl flex items-center justify-center shadow-md"
+                          style={{ backgroundColor: theme.primaryTint12, color: primaryColor }}
+                        >
+                          <Store size={30} />
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-xs font-bold uppercase tracking-widest" style={{ color: theme.textMuted }}>
+                            {pendingOrder?.orderNumber ? t.qrOrderLabel(pendingOrder.orderNumber) : ''}
+                          </div>
+                          <div className="text-4xl font-serif font-black tabular-nums" style={{ color: primaryColor }}>
+                            {formatMoney(grandTotal, currency)}
+                          </div>
+                          <h3 className="text-lg font-serif font-bold pt-1" style={{ color: theme.text }}>
+                            {t.qrPayAtCounterTitle}
+                          </h3>
+                          <p className="text-xs max-w-xs mx-auto leading-relaxed" style={{ color: theme.textMuted }}>
+                            {t.qrPayAtCounterDesc}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isUpdatingPayment || !pendingOrder}
+                          onClick={() => handleManualVerificationOrCounter('counter')}
+                          className="w-full min-h-[54px] rounded-2xl font-bold text-sm shadow-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50"
+                          style={{ backgroundColor: primaryColor, color: primaryContrast }}
+                        >
+                          {isUpdatingPayment ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle2 size={18} />}
+                          <span>{t.qrConfirmPayAtCounterBtn}</span>
+                        </button>
+                      </div>
+
+                      {paymentError && (
+                        <div className="w-full p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold">
+                          {paymentError}
+                        </div>
+                      )}
+
                       <button
                         type="button"
-                        disabled={isAuthorizing}
-                        onClick={handleSimulatePayment}
-                        className="w-full min-h-[52px] rounded-2xl font-bold text-sm shadow-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-all cursor-pointer disabled:opacity-50"
-                        style={{ backgroundColor: primaryColor, color: primaryContrast }}
+                        disabled={isUpdatingPayment}
+                        onClick={() => setShowCounterView(false)}
+                        className="w-full min-h-[48px] rounded-2xl border font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                        style={{
+                          backgroundColor: theme.cardBgSolid,
+                          borderColor: theme.primaryBorder,
+                          color: theme.text,
+                        }}
                       >
-                        <Sparkles size={16} />
-                        <span>{isAuthorizing ? t.processingPayment : t.simulatePaymentBtn}</span>
+                        <ArrowLeft size={15} />
+                        <span>{t.qrBackToQrPayment}</span>
                       </button>
-                    )}
-
-                    <button
-                      type="button"
-                      disabled={isAuthorizing}
-                      onClick={handleCancelPaymentStep}
-                      className="w-full min-h-[48px] rounded-2xl bg-white hover:bg-stone-50 border border-black/10 font-bold text-sm text-stone-700 active:scale-[0.98] transition-all cursor-pointer"
-                    >
-                      {t.cancelPayment}
-                    </button>
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* STEP 4: ORDER CONFIRMED + DUAL 80MM PRINTING */}
+              {/* STEP 4: ORDER CONFIRMED + CONFETTI + DUAL 80MM PRINTING + 8S RESET */}
               {step === 'success' && confirmedOrder && (
-                <div className="py-4 flex flex-col items-center text-center space-y-6">
+                <div className="py-4 flex flex-col items-center text-center space-y-5 relative overflow-hidden">
+                  {/* Celebratory Confetti Burst (when payment is confirmed paid) */}
+                  {confirmedOrder.paymentStatus === 'paid' && (
+                    <div className="pointer-events-none absolute inset-x-0 top-0 h-44 overflow-hidden">
+                      {[
+                        { left: '12%', delay: 0, color: '#10b981', x: -18, rot: 140 },
+                        { left: '24%', delay: 0.08, color: primaryColor, x: 14, rot: -120 },
+                        { left: '36%', delay: 0.04, color: '#f59e0b', x: -10, rot: 200 },
+                        { left: '50%', delay: 0.12, color: '#3b82f6', x: 20, rot: -180 },
+                        { left: '64%', delay: 0.06, color: '#10b981', x: -16, rot: 160 },
+                        { left: '76%', delay: 0.1, color: '#ec4899', x: 12, rot: -140 },
+                        { left: '88%', delay: 0.02, color: primaryColor, x: -12, rot: 110 },
+                      ].map((p, idx) => (
+                        <motion.span
+                          key={idx}
+                          initial={{ y: -12, x: 0, opacity: 1, rotate: 0, scale: 1 }}
+                          animate={{ y: 150, x: p.x, opacity: 0, rotate: p.rot, scale: 0.6 }}
+                          transition={{ duration: 1.5, delay: p.delay, ease: 'easeOut' }}
+                          className="absolute top-2 w-2.5 h-2.5 rounded-sm"
+                          style={{ left: p.left, backgroundColor: p.color }}
+                        />
+                      ))}
+                    </div>
+                  )}
+
                   <motion.div
-                    initial={{ scale: 0.5, opacity: 0 }}
+                    initial={{ scale: 0.4, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                    className="w-20 h-20 rounded-full flex items-center justify-center shadow-xl"
+                    transition={{ type: 'spring', stiffness: 300, damping: 18 }}
+                    className="w-20 h-20 rounded-full flex items-center justify-center shadow-xl relative z-10"
                     style={{
-                      backgroundColor: theme.details,
-                      color: getContrastText(theme.details),
+                      backgroundColor: confirmedOrder.paymentStatus === 'manual_verification' ? '#d97706' : '#16a34a',
+                      color: '#ffffff',
                     }}
                   >
-                    <Check size={40} strokeWidth={3} />
+                    {confirmedOrder.paymentStatus === 'manual_verification' ? (
+                      <BellRing size={36} strokeWidth={2.5} />
+                    ) : (
+                      <Check size={40} strokeWidth={3} />
+                    )}
                   </motion.div>
 
-                  <div className="space-y-1">
-                    <h2 className="text-3xl font-serif font-extrabold" style={{ color: theme.text }}>
-                      {t.orderConfirmedTitle}
+                  <div className="space-y-1.5 relative z-10 max-w-md">
+                    <h2 className="text-2xl sm:text-3xl font-serif font-extrabold leading-tight" style={{ color: theme.text }}>
+                      {confirmedOrder.paymentStatus === 'manual_verification'
+                        ? t.qrManualVerificationTitle(confirmedOrder.orderNumber || 100)
+                        : t.qrPaymentConfirmedTitle(confirmedOrder.orderNumber || 100)}
                     </h2>
                     <p className="text-sm" style={{ color: theme.textMuted }}>
-                      {confirmedOrder.customerName} ·{' '}
-                      {confirmedOrder.orderType === 'takeout' ? t.takeout : t.dineIn}
-                      {confirmedOrder.tableOrPager ? ` · ${confirmedOrder.tableOrPager}` : ''}
+                      {confirmedOrder.paymentStatus === 'manual_verification'
+                        ? t.qrManualVerificationSub
+                        : `${confirmedOrder.customerName} · ${
+                            confirmedOrder.orderType === 'takeout' ? t.takeout : t.dineIn
+                          }${confirmedOrder.tableOrPager ? ` · ${confirmedOrder.tableOrPager}` : ''}`}
                     </p>
                   </div>
 
                   {/* Giant Editorial Order Number Card */}
                   <div
-                    className="w-full max-w-sm rounded-[28px] p-6 border shadow-sm space-y-2"
+                    className="w-full max-w-sm rounded-[28px] p-6 border shadow-sm space-y-2 relative z-10"
                     style={{
                       backgroundColor: theme.cardBgSolid,
                       borderColor: theme.primaryBorder,
@@ -1078,7 +1372,15 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
                       className="pt-2 border-t flex items-center justify-between text-xs font-bold"
                       style={{ borderColor: theme.primaryBorder }}
                     >
-                      <span style={{ color: theme.details }}>{t.paidBadge}</span>
+                      <span
+                        style={{
+                          color: confirmedOrder.paymentStatus === 'manual_verification' ? '#b45309' : '#15803d',
+                        }}
+                      >
+                        {confirmedOrder.paymentStatus === 'manual_verification'
+                          ? t.qrManualVerificationBadge
+                          : t.paidBadge}
+                      </span>
                       <span className="tabular-nums" style={{ color: theme.price }}>
                         {formatMoney(confirmedOrder.total, currency)}
                       </span>
@@ -1086,7 +1388,7 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
                   </div>
 
                   {/* Dual 80mm Printing Status */}
-                  <div className="w-full max-w-sm space-y-2.5">
+                  <div className="w-full max-w-sm space-y-2.5 relative z-10">
                     <div className="flex items-center justify-center gap-2 text-xs font-semibold text-stone-600">
                       <Printer size={15} />
                       <span>{isPrinting ? t.printingReceipts : t.receiptsPrinted}</span>
@@ -1104,7 +1406,7 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
                     )}
                   </div>
 
-                  <div className="w-full max-w-sm space-y-2 pt-2">
+                  <div className="w-full max-w-sm space-y-2 pt-1 relative z-10">
                     <button
                       type="button"
                       onClick={onOrderCompletedAndReset}

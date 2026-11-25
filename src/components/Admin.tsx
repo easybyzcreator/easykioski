@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { db, auth } from '../firebase';
+import { db, auth, FIREBASE_PROJECT_ID } from '../firebase';
 import { 
   collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, setDoc, 
   query, orderBy 
@@ -12,7 +12,7 @@ import {
   ArrowUp, ArrowDown, MessageCircle, MessageSquare, Calendar, Printer, Cake, Eye, EyeOff, ArrowLeft,
   DollarSign, Coins, ChevronDown, ChevronUp, Users, Download, Truck, Search, Info, Table, ShoppingBag, Calculator,
   MapPin, Navigation, ArrowUpDown, Lock, ChefHat, CreditCard, DatabaseBackup, Clock, Percent, Monitor,
-  Globe, Sparkles, Smartphone
+  Globe, Sparkles, Smartphone, QrCode, KeyRound, Code2, RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -28,11 +28,20 @@ import { restoreBaseCatalogToFirestore } from '../services/catalogSeedService';
 import {
   BulkTranslationProgress,
   countPendingCatalogTranslations,
+  translateIntroTextsAllLanguages,
   translatePendingCatalogInBulk,
   translateSingleItemAllLanguages,
 } from '../services/catalogTranslationService';
+import {
+  generateGoogleAppsScriptCode,
+  generateSecureWebhookSecret,
+  sanitizeCashAppTag,
+  sanitizePaypalUsername,
+  sanitizeVenmoUsername,
+} from '../services/appsScriptGenerator';
 import { printDualOrderReceipts, triggerBrowserIframePrint } from '../services/printService';
 import { formatMoney } from '../utils/kioskI18n';
+import { QRCodeCanvas } from 'qrcode.react';
 
 const getContrastText = (hexColor?: string): string => {
   if (!hexColor) return '#ffffff';
@@ -186,6 +195,10 @@ export default function Admin({
   const [activeTab, setActiveTab] = useState<'settings' | 'menu' | 'sortMenu' | 'orders' | 'categories' | 'sides' | 'customers' | 'cakeOptions' | 'galleries' | 'finance' | 'pricing'>('orders');
   const [showFinancePeriodOrdersModal, setShowFinancePeriodOrdersModal] = useState(false);
   const [productTranslationTab, setProductTranslationTab] = useState<'en' | 'es' | 'pt'>('en');
+  const [introTranslationTab, setIntroTranslationTab] = useState<'en' | 'es' | 'pt'>('en');
+  const [isTranslatingIntro, setIsTranslatingIntro] = useState(false);
+  const [showIntroTranslations, setShowIntroTranslations] = useState(false);
+  const [showAppsScriptCode, setShowAppsScriptCode] = useState(false);
   const [isTranslatingProduct, setIsTranslatingProduct] = useState(false);
   const [isTranslatingCategory, setIsTranslatingCategory] = useState(false);
   const [isBulkTranslating, setIsBulkTranslating] = useState(false);
@@ -244,6 +257,13 @@ export default function Admin({
         ? settings.customFixedCosts.map(item => ({ label: item.label, amount: item.amount.toString() }))
         : []
     );
+    // Gera automaticamente uma chave secreta segura de webhook caso ainda esteja vazia
+    if (settings && !settings.emailWebhookSecret) {
+      setSettings((prev) => ({
+        ...prev,
+        emailWebhookSecret: generateSecureWebhookSecret(32),
+      }));
+    }
   }, [settings]);
 
   
@@ -1136,6 +1156,55 @@ export default function Admin({
       toast.error(`Erro ao traduzir categoria: ${err?.message || 'verifique sua conexão.'}`);
     } finally {
       setIsTranslatingCategory(false);
+    }
+  };
+
+  const handleAutoTranslateIntroTexts = async () => {
+    const sub = (settings?.introSubtitle || '').trim();
+    const desc = (settings?.introDescription || '').trim();
+    const btn = (settings?.introButtonText || '').trim();
+    const bot = (settings?.introBottomText || '').trim();
+    const slg = (settings?.catalog1Slogan || settings?.slogan || '').trim();
+
+    if (!sub && !desc && !btn && !bot && !slg) {
+      toast.error('Preencha ao menos um texto da tela inicial antes de traduzir.');
+      return;
+    }
+
+    setIsTranslatingIntro(true);
+    try {
+      const translated = await translateIntroTextsAllLanguages({
+        introSubtitle: sub,
+        introDescription: desc,
+        introButtonText: btn,
+        introBottomText: bot,
+        slogan: slg,
+      });
+      setSettings((prev) => ({
+        ...prev,
+        introSubtitle_en: translated.introSubtitle_en,
+        introSubtitle_es: translated.introSubtitle_es,
+        introSubtitle_pt: translated.introSubtitle_pt,
+        introDescription_en: translated.introDescription_en,
+        introDescription_es: translated.introDescription_es,
+        introDescription_pt: translated.introDescription_pt,
+        introButtonText_en: translated.introButtonText_en,
+        introButtonText_es: translated.introButtonText_es,
+        introButtonText_pt: translated.introButtonText_pt,
+        introBottomText_en: translated.introBottomText_en,
+        introBottomText_es: translated.introBottomText_es,
+        introBottomText_pt: translated.introBottomText_pt,
+        slogan_en: translated.slogan_en,
+        slogan_es: translated.slogan_es,
+        slogan_pt: translated.slogan_pt,
+      }));
+      setShowIntroTranslations(true);
+      toast.success('Textos da tela inicial traduzidos em EN / ES / PT! Clique em "Salvar Alterações" para aplicar.');
+    } catch (err: any) {
+      console.error('Erro ao traduzir textos da tela inicial:', err);
+      toast.error(`Erro ao traduzir: ${err?.message || 'verifique sua conexão.'}`);
+    } finally {
+      setIsTranslatingIntro(false);
     }
   };
 
@@ -4227,6 +4296,218 @@ export default function Admin({
                   />
                 </label>
 
+                {/* PAGAMENTOS NO TOTEM (QR CODE & CONFIRMAÇÃO AUTOMÁTICA POR E-MAIL) */}
+                <div className="p-5 rounded-2xl bg-stone-50 border border-stone-200 space-y-5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-200 pb-3">
+                    <div>
+                      <span className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-800">
+                        Exclusivo para o Totem na Loja
+                      </span>
+                      <h4 className="text-base font-serif font-black text-stone-900 flex items-center gap-2 mt-0.5">
+                        <QrCode size={18} /> Pagamentos no Totem (QR Code & Confirmação Automática)
+                      </h4>
+                      <p className="text-xs text-stone-600 mt-0.5">
+                        Gere QR Codes dinâmicos na hora (Venmo, PayPal e Cash App) com valor exato e confirmação automática via Gmail (Google Apps Script). Os valores padrão de demonstração podem ser substituídos pelo seu usuário a qualquer momento.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* 1. Identificadores do Lojista */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-stone-700">
+                        Venmo Username
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full p-2.5 rounded-xl border border-stone-300 bg-white text-sm font-mono"
+                        value={settings?.venmoUsername ?? 'easykioski-demo'}
+                        onChange={(e) => setSettings({ ...settings, venmoUsername: e.target.value })}
+                        placeholder="@nome-do-restaurante"
+                      />
+                      {settings?.venmoUsername?.trim() && (
+                        <p className="text-[10px] text-emerald-700 font-semibold">
+                          Link gerado: venmo.com/{sanitizeVenmoUsername(settings.venmoUsername)}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-stone-700">
+                        PayPal.me Username
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full p-2.5 rounded-xl border border-stone-300 bg-white text-sm font-mono"
+                        value={settings?.paypalMeUsername ?? 'easykioskidemo'}
+                        onChange={(e) => setSettings({ ...settings, paypalMeUsername: e.target.value })}
+                        placeholder="nome-do-restaurante"
+                      />
+                      {settings?.paypalMeUsername?.trim() && (
+                        <p className="text-[10px] text-emerald-700 font-semibold">
+                          Link gerado: paypal.me/{sanitizePaypalUsername(settings.paypalMeUsername)}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase tracking-wider text-stone-700">
+                        Cash App $Cashtag
+                      </label>
+                      <input
+                        type="text"
+                        className="w-full p-2.5 rounded-xl border border-stone-300 bg-white text-sm font-mono"
+                        value={settings?.cashAppTag ?? 'easykioskidemo'}
+                        onChange={(e) => setSettings({ ...settings, cashAppTag: e.target.value })}
+                        placeholder="$nome-do-restaurante"
+                      />
+                      {settings?.cashAppTag?.trim() && (
+                        <p className="text-[10px] text-emerald-700 font-semibold">
+                          Link gerado: cash.app/${sanitizeCashAppTag(settings.cashAppTag)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Toggles: Pay at Counter + Modo Demonstração */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-white border border-stone-200 cursor-pointer">
+                      <div>
+                        <p className="text-xs font-bold text-stone-900">Permitir "Pagar no Balcão" (link discreto no rodapé)</p>
+                        <p className="text-[11px] text-stone-500">
+                          Exibe um link discreto no rodapé da tela de pagamento para clientes que preferirem pagar em dinheiro ou cartão no caixa.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={settings?.allowPayAtCounter !== false}
+                        onChange={(e) => setSettings({ ...settings, allowPayAtCounter: e.target.checked })}
+                        className="w-5 h-5 accent-stone-900 cursor-pointer shrink-0"
+                      />
+                    </label>
+
+                    <label className="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-white border border-stone-200 cursor-pointer">
+                      <div>
+                        <p className="text-xs font-bold text-stone-900">Modo Demonstração (Apresentação Comercial)</p>
+                        <p className="text-[11px] text-stone-500">
+                          Exibe botão discreto "Simulate Payment Approved" no Totem para testes e demos ao vivo.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(settings?.totemDemoMode)}
+                        onChange={(e) => setSettings({ ...settings, totemDemoMode: e.target.checked })}
+                        className="w-5 h-5 accent-emerald-700 cursor-pointer shrink-0"
+                      />
+                    </label>
+                  </div>
+
+                  {/* 2. Chave Secreta de Webhook */}
+                  <div className="p-4 rounded-xl bg-white border border-stone-200 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <label className="text-[11px] font-black uppercase tracking-wider text-stone-700 flex items-center gap-1.5">
+                        <KeyRound size={14} /> Chave Secreta de Webhook (emailWebhookSecret)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const secret = settings?.emailWebhookSecret || generateSecureWebhookSecret(32);
+                            navigator.clipboard.writeText(secret);
+                            toast.success('Chave secreta copiada!');
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-stone-900 text-white text-[11px] font-bold flex items-center gap-1.5 hover:bg-stone-800 cursor-pointer"
+                        >
+                          <Copy size={12} /> Copiar Chave
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextSecret = generateSecureWebhookSecret(32);
+                            setSettings({ ...settings, emailWebhookSecret: nextSecret });
+                            toast.info('Nova chave secreta gerada! Lembre-se de salvar e atualizar no Apps Script.');
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-800 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <RefreshCw size={12} /> Gerar Nova
+                        </button>
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      readOnly
+                      className="w-full p-2.5 rounded-xl border border-stone-200 bg-stone-50 text-xs font-mono text-stone-800 select-all"
+                      value={settings?.emailWebhookSecret || ''}
+                    />
+                  </div>
+
+                  {/* 3. Card Colapsável com o Código Pronto do Google Apps Script */}
+                  <div className="rounded-2xl border border-stone-300 bg-white overflow-hidden shadow-xs">
+                    <button
+                      type="button"
+                      onClick={() => setShowAppsScriptCode((prev) => !prev)}
+                      className="w-full px-4 py-3.5 flex items-center justify-between gap-3 text-left hover:bg-stone-50 transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Code2 size={18} className="text-amber-800 shrink-0" />
+                        <span className="text-xs sm:text-sm font-black text-stone-900">
+                          📜 Código Pronto do Google Apps Script (Copiar e Colar no Gmail do Lojista)
+                        </span>
+                      </div>
+                      {showAppsScriptCode ? <ChevronUp size={18} className="text-stone-500 shrink-0" /> : <ChevronDown size={18} className="text-stone-500 shrink-0" />}
+                    </button>
+
+                    {showAppsScriptCode && (
+                      <div className="p-4 pt-2 border-t border-stone-200 space-y-4 bg-stone-50/70">
+                        {/* Instruções em 3 passos simples */}
+                        <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 space-y-1.5 text-xs text-stone-800">
+                          <p className="font-black text-amber-950 uppercase tracking-wider text-[11px]">
+                            Como ativar a confirmação automática em 3 passos simples:
+                          </p>
+                          <ol className="list-decimal list-inside space-y-1 font-medium">
+                            <li>
+                              Acesse <strong className="font-mono">script.google.com</strong> logado na conta do Gmail que recebe as notificações de <strong>Venmo, PayPal, Cash App e Zelle</strong>, e clique em <strong>Novo Projeto</strong>.
+                            </li>
+                            <li>
+                              Apague o código inicial, cole o código abaixo (já configurado com o seu Firebase <strong className="font-mono">{FIREBASE_PROJECT_ID}</strong> e sua chave secreta) e clique em <strong>Salvar</strong>.
+                            </li>
+                            <li>
+                              Selecione a função <strong className="font-mono">setupOneMinuteTrigger</strong> no topo e clique em <strong>Executar</strong> (aceite as permissões do Gmail). Pronto! Ele verificará novos pagamentos a cada 1 minuto automaticamente.
+                            </li>
+                          </ol>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                            Script completo (.gs) pronto para uso
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const code = generateGoogleAppsScriptCode({
+                                projectId: FIREBASE_PROJECT_ID,
+                                webhookSecret: settings?.emailWebhookSecret || '',
+                              });
+                              navigator.clipboard.writeText(code);
+                              toast.success('Código completo do Google Apps Script copiado!');
+                            }}
+                            className="px-3.5 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <Copy size={13} /> Copiar Código Completo (.gs)
+                          </button>
+                        </div>
+
+                        <pre className="w-full max-h-80 overflow-auto p-4 rounded-xl bg-stone-950 text-emerald-300 text-[11px] font-mono leading-relaxed border border-stone-800 select-all">
+                          {generateGoogleAppsScriptCode({
+                            projectId: FIREBASE_PROJECT_ID,
+                            webhookSecret: settings?.emailWebhookSecret || '',
+                          })}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Terminal de Pagamento */}
                 <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-4">
                   <div className="flex items-center justify-between flex-wrap gap-2">
@@ -4349,10 +4630,10 @@ export default function Admin({
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div>
                       <h4 className="text-sm font-black uppercase tracking-wider text-stone-800 flex items-center gap-2">
-                        <Smartphone size={16} /> Retirada Agendada & Pagamento Online (Mobile Pickup)
+                        <Smartphone size={16} /> Retirada Agendada & Pagamento Direto (Mobile Pickup)
                       </h4>
                       <p className="text-xs text-stone-500 mt-0.5">
-                        Configure o tempo médio de preparo, horários disponíveis para agendamento e o gateway de pagamento online do link externo (/order).
+                        Usa os mesmos identificadores de <strong>Venmo, PayPal, Cash App</strong> e o <strong>Google Apps Script</strong> configurados acima (taxa zero!), com abertura direta no celular do cliente e suporte opcional a <strong>Zelle</strong>.
                       </p>
                     </div>
                   </div>
@@ -4360,7 +4641,7 @@ export default function Admin({
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <div className="space-y-1">
                       <label className="text-[11px] font-bold uppercase tracking-wider text-stone-600">
-                        Tempo Médio de Preparo (min)
+                        Tempo Médio ASAP (min)
                       </label>
                       <input
                         type="number"
@@ -4368,11 +4649,11 @@ export default function Admin({
                         max={180}
                         step={5}
                         className="w-full p-2.5 rounded-xl border border-stone-300 bg-white text-sm font-bold text-stone-900"
-                        value={settings?.defaultPrepMinutes ?? 20}
+                        value={settings?.defaultPrepMinutes ?? 25}
                         onChange={(e) =>
                           setSettings({
                             ...settings,
-                            defaultPrepMinutes: Math.max(5, parseInt(e.target.value || '20', 10)),
+                            defaultPrepMinutes: Math.max(5, parseInt(e.target.value || '25', 10)),
                           })
                         }
                       />
@@ -4422,37 +4703,45 @@ export default function Admin({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                     <div className="space-y-1">
                       <label className="text-[11px] font-bold uppercase tracking-wider text-stone-600">
-                        Pagamento Online Padrão (Mobile Pickup)
-                      </label>
-                      <select
-                        className="w-full p-2.5 rounded-xl border border-stone-300 bg-white text-sm font-bold text-stone-900"
-                        value={settings?.onlinePaymentProvider || 'simulation'}
-                        onChange={(e) =>
-                          setSettings({
-                            ...settings,
-                            onlinePaymentProvider: e.target.value as any,
-                          })
-                        }
-                      >
-                        <option value="simulation">Modo Demonstração / Teste (Aprovação Instantânea)</option>
-                        <option value="square_web">Square Web Payments (Cartão / Apple Pay / Google Pay)</option>
-                        <option value="paypal">PayPal Checkout (EUA)</option>
-                        <option value="venmo">Venmo Mobile (EUA)</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-stone-600">
-                        ID da Conta / Merchant Online (Opcional)
+                        Zelle Email / Telefone (Opcional para pedidos antecipados)
                       </label>
                       <input
                         type="text"
                         className="w-full p-2.5 rounded-xl border border-stone-300 bg-white text-sm font-mono"
-                        value={settings?.onlinePaymentMerchantId || ''}
+                        value={settings?.zelleIdentifier || ''}
                         onChange={(e) =>
-                          setSettings({ ...settings, onlinePaymentMerchantId: e.target.value })
+                          setSettings({ ...settings, zelleIdentifier: e.target.value })
                         }
-                        placeholder="ex: Client ID PayPal / Square App ID"
+                        placeholder="ex: pagamentos@seurestaurante.com ou (555) 123-4567"
                       />
+                      <p className="text-[10px] text-stone-500">
+                        Exibe cartão Zelle com botão &quot;Copiar Zelle e Valor&quot; e número do pedido no celular do cliente.
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-white border border-stone-200 flex items-center justify-between gap-3">
+                      <div className="space-y-0.5">
+                        <div className="text-xs font-black text-stone-900">
+                          Só enviar Mobile Pickup para a Cozinha/Impressora após pagamento confirmado
+                        </div>
+                        <p className="text-[11px] text-stone-500 leading-snug">
+                          Recomendado ativo: evita produzir pedidos abandonados antes do cliente pagar.
+                        </p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={settings?.mobilePickupRequirePaidForKds !== false}
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              mobilePickupRequirePaidForKds: e.target.checked,
+                            })
+                          }
+                        />
+                        <div className="w-11 h-6 bg-stone-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600" />
+                      </label>
                     </div>
                   </div>
                 </div>
@@ -4577,8 +4866,195 @@ export default function Admin({
                         className="w-full p-2.5 rounded-xl border border-gray-300 text-sm font-mono bg-white"
                         value={settings?.introBottomText || ''}
                         onChange={e => setSettings({...settings, introBottomText: e.target.value})}
-                        placeholder="Ex: 100% ARTESANAL & AFRO-BRASILEIRO"
+                        placeholder="Ex: EASY KIOSKI · SELF-SERVICE KIOSK"
                       />
+                    </div>
+
+                    {/* Botão Tradução Instantânea EN / ES / PT para Textos da Tela Inicial */}
+                    <div className="pt-2 border-t border-gray-200 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={handleAutoTranslateIntroTexts}
+                          disabled={isTranslatingIntro}
+                          className="px-4 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
+                        >
+                          {isTranslatingIntro ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                          <span>
+                            {isTranslatingIntro
+                              ? 'Traduzindo frases para EN / ES / PT...'
+                              : '✨ Traduzir Textos da Tela Inicial para EN / ES / PT'}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowIntroTranslations((prev) => !prev)}
+                          className="px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Globe size={13} />
+                          <span>{showIntroTranslations ? 'Ocultar Traduções' : 'Ver / Editar Traduções EN / ES / PT'}</span>
+                        </button>
+                      </div>
+
+                      {showIntroTranslations && (
+                        <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 space-y-3">
+                          <div className="flex items-center gap-1.5">
+                            {(['en', 'es', 'pt'] as const).map((lng) => (
+                              <button
+                                key={lng}
+                                type="button"
+                                onClick={() => setIntroTranslationTab(lng)}
+                                className={cn(
+                                  'px-3 py-1.5 rounded-lg text-xs font-black uppercase cursor-pointer transition-all',
+                                  introTranslationTab === lng
+                                    ? 'bg-stone-900 text-white'
+                                    : 'bg-white text-stone-700 border border-stone-200'
+                                )}
+                              >
+                                {lng === 'en' ? '🇺🇸 Inglês (EN)' : lng === 'es' ? '🇪🇸 Espanhol (ES)' : '🇧🇷 Português (PT)'}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold uppercase text-stone-500">
+                                Subtítulo Cursivo ({introTranslationTab.toUpperCase()})
+                              </label>
+                              <input
+                                type="text"
+                                className="w-full p-2 rounded-lg border border-stone-300 bg-white text-xs"
+                                value={
+                                  introTranslationTab === 'en'
+                                    ? settings?.introSubtitle_en || ''
+                                    : introTranslationTab === 'es'
+                                      ? settings?.introSubtitle_es || ''
+                                      : settings?.introSubtitle_pt || ''
+                                }
+                                onChange={(e) =>
+                                  setSettings({
+                                    ...settings,
+                                    ...(introTranslationTab === 'en'
+                                      ? { introSubtitle_en: e.target.value }
+                                      : introTranslationTab === 'es'
+                                        ? { introSubtitle_es: e.target.value }
+                                        : { introSubtitle_pt: e.target.value }),
+                                  })
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold uppercase text-stone-500">
+                                Texto do Botão ({introTranslationTab.toUpperCase()})
+                              </label>
+                              <input
+                                type="text"
+                                className="w-full p-2 rounded-lg border border-stone-300 bg-white text-xs"
+                                value={
+                                  introTranslationTab === 'en'
+                                    ? settings?.introButtonText_en || ''
+                                    : introTranslationTab === 'es'
+                                      ? settings?.introButtonText_es || ''
+                                      : settings?.introButtonText_pt || ''
+                                }
+                                onChange={(e) =>
+                                  setSettings({
+                                    ...settings,
+                                    ...(introTranslationTab === 'en'
+                                      ? { introButtonText_en: e.target.value }
+                                      : introTranslationTab === 'es'
+                                        ? { introButtonText_es: e.target.value }
+                                        : { introButtonText_pt: e.target.value }),
+                                  })
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1 sm:col-span-2">
+                              <label className="text-[10px] font-bold uppercase text-stone-500">
+                                Texto de Apresentação ({introTranslationTab.toUpperCase()})
+                              </label>
+                              <textarea
+                                rows={2}
+                                className="w-full p-2 rounded-lg border border-stone-300 bg-white text-xs"
+                                value={
+                                  introTranslationTab === 'en'
+                                    ? settings?.introDescription_en || ''
+                                    : introTranslationTab === 'es'
+                                      ? settings?.introDescription_es || ''
+                                      : settings?.introDescription_pt || ''
+                                }
+                                onChange={(e) =>
+                                  setSettings({
+                                    ...settings,
+                                    ...(introTranslationTab === 'en'
+                                      ? { introDescription_en: e.target.value }
+                                      : introTranslationTab === 'es'
+                                        ? { introDescription_es: e.target.value }
+                                        : { introDescription_pt: e.target.value }),
+                                  })
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold uppercase text-stone-500">
+                                Texto Inferior / Rodapé ({introTranslationTab.toUpperCase()})
+                              </label>
+                              <input
+                                type="text"
+                                className="w-full p-2 rounded-lg border border-stone-300 bg-white text-xs font-mono"
+                                value={
+                                  introTranslationTab === 'en'
+                                    ? settings?.introBottomText_en || ''
+                                    : introTranslationTab === 'es'
+                                      ? settings?.introBottomText_es || ''
+                                      : settings?.introBottomText_pt || ''
+                                }
+                                onChange={(e) =>
+                                  setSettings({
+                                    ...settings,
+                                    ...(introTranslationTab === 'en'
+                                      ? { introBottomText_en: e.target.value }
+                                      : introTranslationTab === 'es'
+                                        ? { introBottomText_es: e.target.value }
+                                        : { introBottomText_pt: e.target.value }),
+                                  })
+                                }
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold uppercase text-stone-500">
+                                Slogan do Cardápio ({introTranslationTab.toUpperCase()})
+                              </label>
+                              <input
+                                type="text"
+                                className="w-full p-2 rounded-lg border border-stone-300 bg-white text-xs"
+                                value={
+                                  introTranslationTab === 'en'
+                                    ? settings?.slogan_en || ''
+                                    : introTranslationTab === 'es'
+                                      ? settings?.slogan_es || ''
+                                      : settings?.slogan_pt || ''
+                                }
+                                onChange={(e) =>
+                                  setSettings({
+                                    ...settings,
+                                    ...(introTranslationTab === 'en'
+                                      ? { slogan_en: e.target.value }
+                                      : introTranslationTab === 'es'
+                                        ? { slogan_es: e.target.value }
+                                        : { slogan_pt: e.target.value }),
+                                  })
+                                }
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -4709,30 +5185,33 @@ export default function Admin({
 
                   <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-white/5 border border-black/10 space-y-3">
                     <div className="p-3 bg-white rounded-xl shadow-md">
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`${window.location.origin}/order`)}`}
-                        alt="QR Code Mobile Pickup"
-                        className="w-32 h-32 object-contain"
-                        referrerPolicy="no-referrer"
+                      <QRCodeCanvas
+                        id="mobile-pickup-qr-canvas"
+                        value={`${window.location.origin}/order`}
+                        size={148}
+                        includeMargin
+                        bgColor="#ffffff"
+                        fgColor="#111111"
+                        level="M"
                       />
                     </div>
                     <button
                       type="button"
-                      onClick={async () => {
+                      onClick={() => {
                         try {
-                          const mobileLink = `${window.location.origin}/order`;
-                          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(mobileLink)}`;
-                          const response = await fetch(qrUrl);
-                          const blob = await response.blob();
-                          const url = window.URL.createObjectURL(blob);
+                          const canvas = document.getElementById('mobile-pickup-qr-canvas') as HTMLCanvasElement | null;
+                          if (!canvas) {
+                            toast.error('QR Code ainda não carregado.');
+                            return;
+                          }
+                          const dataUrl = canvas.toDataURL('image/png');
                           const a = document.createElement('a');
-                          a.href = url;
-                          a.download = `qrcode-mobile-pickup-${settings?.slug || 'order'}.png`;
+                          a.href = dataUrl;
+                          a.download = `qrcode-mobile-pickup-${settings?.slug || 'easy-kioski'}.png`;
                           document.body.appendChild(a);
                           a.click();
                           document.body.removeChild(a);
-                          window.URL.revokeObjectURL(url);
-                          toast.success('QR Code Mobile Pickup baixado com sucesso!');
+                          toast.success('QR Code Mobile Pickup (PNG) baixado com sucesso!');
                         } catch (error) {
                           console.error('Error downloading Mobile Pickup QR code:', error);
                           toast.error('Não foi possível baixar o QR Code.');
@@ -4742,7 +5221,7 @@ export default function Admin({
                       style={{ backgroundColor: '#efedea', color: '#000000' }}
                     >
                       <Download size={14} className="text-black" />
-                      <span className="text-black">Baixar QR Code</span>
+                      <span className="text-black">Baixar QR Code (PNG)</span>
                     </button>
                   </div>
                 </div>

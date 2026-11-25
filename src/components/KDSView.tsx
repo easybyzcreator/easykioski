@@ -16,7 +16,10 @@ import {
   ShoppingBag,
   Smartphone,
   Phone,
+  AlertTriangle,
+  ShieldCheck,
 } from 'lucide-react';
+import { formatMoney } from '../utils/kioskI18n';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 
@@ -95,14 +98,31 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
       (snapshot) => {
         const fetched = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Order));
 
-        // Consider paid kiosk orders, mobile pickup orders, or full-paid orders for KDS
-        const paidOrders = fetched.filter(
-          (o) =>
+        const requirePaidMobile = settings.mobilePickupRequirePaidForKds !== false;
+
+        // Exclude orders still awaiting payment; enforce paid/manual_verification for Mobile Pickup when enabled
+        const paidOrders = fetched.filter((o) => {
+          if (o.paymentStatus === 'awaiting_payment') return false;
+          const isMobile =
+            o.orderSource === 'mobile_pickup' ||
+            (o.source === 'online' && o.deliveryType === 'pickup');
+          if (isMobile) {
+            if (requirePaidMobile) {
+              return (
+                o.paymentStatus === 'paid' ||
+                o.paymentStatus === 'full' ||
+                o.paymentStatus === 'manual_verification'
+              );
+            }
+            return true;
+          }
+          return (
             o.paymentStatus === 'paid' ||
             o.paymentStatus === 'full' ||
-            o.source === 'kiosk' ||
-            o.orderSource === 'mobile_pickup'
-        );
+            o.paymentStatus === 'manual_verification' ||
+            o.source === 'kiosk'
+          );
+        });
 
         const preparingNow = paidOrders.filter(
           (o) => o.kitchenStatus !== 'ready' && o.kitchenStatus !== 'completed'
@@ -133,7 +153,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
     );
 
     return () => unsub();
-  }, [soundEnabled]);
+  }, [soundEnabled, settings.mobilePickupRequirePaidForKds]);
 
   const preparingOrders = useMemo(() => {
     return orders
@@ -173,6 +193,22 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
     } catch (err) {
       console.error('[KDS] Error reopening order:', err);
       toast.error('Could not reopen order.');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const confirmPaymentManually = async (order: Order) => {
+    setUpdatingId(order.id);
+    try {
+      await updateDoc(doc(db, 'pedidos', order.id), {
+        paymentStatus: 'paid',
+        paymentConfirmedAt: serverTimestamp(),
+      });
+      toast.success(`Payment verified for Order #${order.orderNumber || order.id.slice(-4).toUpperCase()}!`);
+    } catch (err) {
+      console.error('[KDS] Error verifying payment:', err);
+      toast.error('Could not confirm payment.');
     } finally {
       setUpdatingId(null);
     }
@@ -310,14 +346,30 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
                     order.orderSource === 'mobile_pickup' ||
                     (order.source === 'online' && order.deliveryType === 'pickup');
                   const pickupTimeDisplay =
+                    order.pickupSchedule ||
                     order.scheduledTime ||
                     (order.pickupTime
                       ? order.pickupDate
                         ? `${order.pickupDate} ${order.pickupTime}`
                         : order.pickupTime
                       : order.pickupType === 'asap'
-                        ? `ASAP (~${settings.defaultPrepMinutes || 20} MIN)`
+                        ? `ASAP (~${settings.defaultPrepMinutes || 25} MIN)`
                         : '');
+
+                  const isManualVerification = order.paymentStatus === 'manual_verification';
+                  const currency = settings.currency || 'USD';
+                  const providerBadge =
+                    order.paymentProvider === 'venmo'
+                      ? 'VENMO'
+                      : order.paymentProvider === 'paypal'
+                        ? 'PAYPAL'
+                        : order.paymentProvider === 'cashapp'
+                          ? 'CASH APP'
+                          : order.paymentProvider === 'zelle'
+                            ? 'ZELLE'
+                            : order.paymentProvider === 'counter'
+                              ? 'COUNTER'
+                              : '';
 
                   return (
                     <motion.article
@@ -326,7 +378,13 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
                       initial={{ opacity: 0, y: 16, scale: 0.96 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, scale: 0.94 }}
-                      className={`bg-[#201E1C] rounded-3xl border ${isMobilePickup ? 'border-sky-400/50' : cardBorder} shadow-2xl overflow-hidden flex flex-col`}
+                      className={`bg-[#201E1C] rounded-3xl border ${
+                        isManualVerification
+                          ? 'border-amber-400/90 ring-2 ring-amber-400/30'
+                          : isMobilePickup
+                            ? 'border-sky-400/50'
+                            : cardBorder
+                      } shadow-2xl overflow-hidden flex flex-col`}
                     >
                       {/* Channel Badge Strip */}
                       <div
@@ -354,12 +412,42 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
                             </>
                           )}
                         </span>
-                        {isMobilePickup && pickupTimeDisplay && (
+                        {isMobilePickup && pickupTimeDisplay ? (
                           <span className="px-2 py-0.5 rounded-md bg-sky-400/25 text-white font-black tracking-wide">
                             PICKUP: {pickupTimeDisplay.toUpperCase()}
                           </span>
-                        )}
+                        ) : providerBadge ? (
+                          <span className="px-2 py-0.5 rounded-md bg-white/10 text-stone-200 font-black tracking-wide">
+                            {providerBadge}
+                          </span>
+                        ) : null}
                       </div>
+
+                      {/* Manual Payment Verification Yellow Alert Bar */}
+                      {isManualVerification && (
+                        <div className="px-4 py-3 bg-amber-400 text-stone-950 flex items-center justify-between gap-3 border-b border-amber-500">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <AlertTriangle size={18} className="shrink-0" />
+                            <div className="leading-tight min-w-0">
+                              <div className="text-xs font-black uppercase tracking-wider truncate">
+                                VERIFY PAYMENT ({formatMoney(order.total, currency)})
+                              </div>
+                              <div className="text-[10px] font-bold opacity-85 truncate">
+                                {providerBadge ? `Via ${providerBadge} · Tap to confirm` : 'Tap once confirmed'}
+                              </div>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={updatingId === order.id}
+                            onClick={() => confirmPaymentManually(order)}
+                            className="px-3 py-1.5 rounded-xl bg-stone-950 hover:bg-stone-800 text-amber-300 text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 shrink-0 cursor-pointer active:scale-95 transition-all disabled:opacity-50"
+                          >
+                            <ShieldCheck size={14} />
+                            <span>Confirm</span>
+                          </button>
+                        </div>
+                      )}
 
                       {/* Ticket Top Header */}
                       <div className="p-5 pb-4 border-b border-white/10 flex items-start justify-between gap-3 bg-white/[0.02]">
