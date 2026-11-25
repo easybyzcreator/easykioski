@@ -217,7 +217,10 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
   const primaryColor = settings.primaryColor || '#865d39';
 
   return (
-    <div className="min-h-screen w-full bg-[#141312] text-[#F5F2ED] flex flex-col">
+    <div
+      className="min-h-screen w-full bg-[#141312] text-[#F5F2ED] flex flex-col"
+      style={{ '--text-color': '#FFFFFF' } as React.CSSProperties}
+    >
       {/* KDS Top Bar */}
       <header className="sticky top-0 z-30 bg-[#1B1917]/95 backdrop-blur-xl border-b border-white/10 px-4 sm:px-8 py-4 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3.5 min-w-0">
@@ -228,7 +231,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
             <ChefHat size={22} />
           </div>
           <div className="min-w-0">
-            <h1 className="font-serif font-extrabold text-xl sm:text-2xl tracking-tight text-[#FAF7F2] truncate">
+            <h1 className="font-serif font-extrabold text-xl sm:text-2xl tracking-tight text-white! truncate">
               {settings.brandName || 'Easy Kioski'} · Kitchen Display
             </h1>
             <div className="text-xs text-stone-400 flex items-center gap-2">
@@ -311,7 +314,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
                 <CheckCircle2 size={36} />
               </div>
               <div className="space-y-1">
-                <h2 className="text-2xl font-serif font-bold text-[#FAF7F2]">All caught up</h2>
+                <h2 className="text-2xl font-serif font-bold text-white!">All caught up</h2>
                 <p className="text-sm text-stone-400 max-w-sm">
                   Paid kiosk orders will appear here automatically in real time.
                 </p>

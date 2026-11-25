@@ -2971,6 +2971,85 @@ export default function Menu({
                     </div>
                   )}
 
+                  {/* Customizable Fillings Selection (Tapiocas / Sandwiches / Bowls) */}
+                  {selectedProductForDetails.isCustomSandwich && (() => {
+                    const activeProd = liveDetailProduct || selectedProductForDetails;
+                    const fillingsList = (activeProd.customFillings || '')
+                      .split(',')
+                      .map(f => f.trim())
+                      .filter(Boolean);
+                    if (fillingsList.length === 0) return null;
+
+                    const maxFillingsAllowed = getMaxFillingsForProduct(activeProd, selectedSize);
+                    const helperLabel =
+                      activeLanguage === 'es'
+                        ? `Elige hasta ${maxFillingsAllowed} ${maxFillingsAllowed === 1 ? 'relleno' : 'rellenos'}`
+                        : activeLanguage === 'pt'
+                          ? `Escolha até ${maxFillingsAllowed} ${maxFillingsAllowed === 1 ? 'recheio' : 'recheios'}`
+                          : `Choose up to ${maxFillingsAllowed} ${maxFillingsAllowed === 1 ? 'filling' : 'fillings'}`;
+                    const sectionTitle =
+                      activeLanguage === 'es'
+                        ? 'Elige los Rellenos'
+                        : activeLanguage === 'pt'
+                          ? 'Escolha os Recheios'
+                          : 'Select Fillings';
+
+                    return (
+                      <div className="border-t border-gray-200/30 pt-6 space-y-3.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="text-xs sm:text-sm font-black tracking-wide" style={{ color: theme.text }}>
+                            {sectionTitle}
+                            {activeProd.fillingsRequired !== false && (
+                              <span className="ml-1" style={{ color: theme.primary }}>*</span>
+                            )}
+                          </h4>
+                          <span className="text-[11px] font-bold" style={{ color: theme.textMuted }}>
+                            {helperLabel}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {fillingsList.map((fillingOpt, idx) => {
+                            const isSelected = selectedSandwichFillings.includes(fillingOpt);
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setSelectedSandwichFillings(prev => prev.filter(f => f !== fillingOpt));
+                                  } else if (maxFillingsAllowed === 1) {
+                                    setSelectedSandwichFillings([fillingOpt]);
+                                  } else if (selectedSandwichFillings.length >= maxFillingsAllowed) {
+                                    toast.info(
+                                      activeLanguage === 'es'
+                                        ? `Puedes elegir como máximo ${maxFillingsAllowed} rellenos.`
+                                        : activeLanguage === 'pt'
+                                          ? `Você pode escolher no máximo ${maxFillingsAllowed} recheios.`
+                                          : `You can choose up to ${maxFillingsAllowed} fillings.`
+                                    );
+                                  } else {
+                                    setSelectedSandwichFillings(prev => [...prev, fillingOpt]);
+                                  }
+                                }}
+                                className="px-4 py-3 rounded-2xl border transition-all flex items-center justify-between gap-2 text-left text-xs font-bold cursor-pointer shadow-xs active:scale-[0.98]"
+                                style={{
+                                  backgroundColor: isSelected ? theme.primary : theme.cardBgSolid,
+                                  color: isSelected ? theme.primaryContrast : theme.text,
+                                  borderColor: isSelected ? theme.primary : theme.primaryBorder,
+                                  borderWidth: isSelected ? 2 : 1,
+                                }}
+                              >
+                                <span className="leading-snug">{fillingOpt}</span>
+                                {isSelected && <Check size={14} className="shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Customizable Meal Options in Details Modal */}
                   {selectedProductForDetails.isMeal && (() => {
                     const activeProd = liveDetailProduct || selectedProductForDetails;
@@ -3116,85 +3195,6 @@ export default function Menu({
                             );
                           })()
                         )}
-                      </div>
-                    );
-                  })()}
-
-                  {/* Customizable Fillings Selection (Tapiocas / Sandwiches / Bowls) */}
-                  {selectedProductForDetails.isCustomSandwich && (() => {
-                    const activeProd = liveDetailProduct || selectedProductForDetails;
-                    const fillingsList = (activeProd.customFillings || '')
-                      .split(',')
-                      .map(f => f.trim())
-                      .filter(Boolean);
-                    if (fillingsList.length === 0) return null;
-
-                    const maxFillingsAllowed = getMaxFillingsForProduct(activeProd, selectedSize);
-                    const helperLabel =
-                      activeLanguage === 'es'
-                        ? `Elige hasta ${maxFillingsAllowed} ${maxFillingsAllowed === 1 ? 'relleno' : 'rellenos'}`
-                        : activeLanguage === 'pt'
-                          ? `Escolha até ${maxFillingsAllowed} ${maxFillingsAllowed === 1 ? 'recheio' : 'recheios'}`
-                          : `Choose up to ${maxFillingsAllowed} ${maxFillingsAllowed === 1 ? 'filling' : 'fillings'}`;
-                    const sectionTitle =
-                      activeLanguage === 'es'
-                        ? 'Elige los Rellenos'
-                        : activeLanguage === 'pt'
-                          ? 'Escolha os Recheios'
-                          : 'Select Fillings';
-
-                    return (
-                      <div className="border-t border-gray-200/30 pt-6 space-y-3.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <h4 className="text-xs sm:text-sm font-black tracking-wide" style={{ color: theme.text }}>
-                            {sectionTitle}
-                            {activeProd.fillingsRequired !== false && (
-                              <span className="ml-1" style={{ color: theme.primary }}>*</span>
-                            )}
-                          </h4>
-                          <span className="text-[11px] font-bold" style={{ color: theme.textMuted }}>
-                            {helperLabel}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                          {fillingsList.map((fillingOpt, idx) => {
-                            const isSelected = selectedSandwichFillings.includes(fillingOpt);
-                            return (
-                              <button
-                                key={idx}
-                                type="button"
-                                onClick={() => {
-                                  if (isSelected) {
-                                    setSelectedSandwichFillings(prev => prev.filter(f => f !== fillingOpt));
-                                  } else if (maxFillingsAllowed === 1) {
-                                    setSelectedSandwichFillings([fillingOpt]);
-                                  } else if (selectedSandwichFillings.length >= maxFillingsAllowed) {
-                                    toast.info(
-                                      activeLanguage === 'es'
-                                        ? `Puedes elegir como máximo ${maxFillingsAllowed} rellenos.`
-                                        : activeLanguage === 'pt'
-                                          ? `Você pode escolher no máximo ${maxFillingsAllowed} recheios.`
-                                          : `You can choose up to ${maxFillingsAllowed} fillings.`
-                                    );
-                                  } else {
-                                    setSelectedSandwichFillings(prev => [...prev, fillingOpt]);
-                                  }
-                                }}
-                                className="px-4 py-3 rounded-2xl border transition-all flex items-center justify-between gap-2 text-left text-xs font-bold cursor-pointer shadow-xs active:scale-[0.98]"
-                                style={{
-                                  backgroundColor: isSelected ? theme.primary : theme.cardBgSolid,
-                                  color: isSelected ? theme.primaryContrast : theme.text,
-                                  borderColor: isSelected ? theme.primary : theme.primaryBorder,
-                                  borderWidth: isSelected ? 2 : 1,
-                                }}
-                              >
-                                <span className="leading-snug">{fillingOpt}</span>
-                                {isSelected && <Check size={14} className="shrink-0" />}
-                              </button>
-                            );
-                          })}
-                        </div>
                       </div>
                     );
                   })()}
