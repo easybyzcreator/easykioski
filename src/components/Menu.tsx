@@ -2150,9 +2150,13 @@ export default function Menu({
       {/* Discreet EN | ES | PT Switcher */}
       {/* Discreet Top-Left Category Menu — ONLY in Mobile Pickup Mode (/#/order) */}
       {isMobilePickup && (() => {
-        const mobileActiveCategories = filteredCategories.filter((cat) =>
-          localizedProducts.some((p) => p.categoryId === cat.id && p.isActive !== false)
-        );
+        const mobileActiveCategories = filteredCategories
+          .filter((cat) =>
+            localizedProducts.some((p) => p.categoryId === cat.id && p.isActive !== false)
+          )
+          .sort((a, b) =>
+            (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' })
+          );
         if (mobileActiveCategories.length === 0) return null;
         const menuLabel =
           activeLanguage === 'es' ? 'Menú' : activeLanguage === 'pt' ? 'Cardápio' : 'Menu';
@@ -2353,9 +2357,13 @@ export default function Menu({
 
       {/* Sticky Category Quick-Jump Bar for Totem / Kiosk Screen */}
       {!isMobilePickup && (() => {
-        const activeCategories = filteredCategories.filter((cat) =>
-          localizedProducts.some((p) => p.categoryId === cat.id && p.isActive !== false)
-        );
+        const activeCategories = filteredCategories
+          .filter((cat) =>
+            localizedProducts.some((p) => p.categoryId === cat.id && p.isActive !== false)
+          )
+          .sort((a, b) =>
+            (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' })
+          );
         if (activeCategories.length <= 1) return null;
         return (
           <div className="sticky top-3 z-30 w-full max-w-5xl xl:max-w-6xl mb-8">
@@ -2591,7 +2599,12 @@ export default function Menu({
               <div className="overflow-y-auto w-full flex-grow p-5 space-y-5">
                 {/* Imagem do Produto (sempre com cantos arredondados harmoniosos) */}
                 <div
-                  className="w-full aspect-[16/10] rounded-2xl overflow-hidden shadow-sm border flex items-center justify-center"
+                  className={cn(
+                    'rounded-2xl overflow-hidden shadow-sm border flex items-center justify-center',
+                    isMobilePickup
+                      ? 'w-full max-w-[360px] mx-auto aspect-square'
+                      : 'w-full aspect-[16/10]'
+                  )}
                   style={{
                     backgroundColor: theme.cardBgSolid,
                     borderColor: theme.primaryBorder,
