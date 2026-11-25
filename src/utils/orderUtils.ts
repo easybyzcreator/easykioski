@@ -131,7 +131,7 @@ export const formatOrderWhatsAppMessage = (order: Order, settings: Settings): st
 
   msg += `💰 *VALOR TOTAL: ${currency} ${formatCurrencyValue(order.total)}*\n`;
 
-  const paymentText = order.paymentStatus === 'full'
+  const paymentText = order.paymentStatus === 'full' || order.paymentStatus === 'paid'
     ? '✅ Pago Integralmente'
     : order.paymentStatus === 'half'
     ? '⏳ Sinal de 50% Pago (Restante no ato da entrega)'
@@ -155,3 +155,155 @@ export const sendOrderToWhatsApp = (order: Order, settings: Settings) => {
   const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
   window.open(url, '_blank');
 };
+
+export interface OrderPaymentDisplayInfo {
+  statusKey: 'paid' | 'half' | 'manual_verification' | 'awaiting_payment' | 'pending';
+  tone: 'emerald' | 'amber' | 'sky' | 'rose';
+  providerLabel: string;
+  badgeLabel: string;
+  title: string;
+  subtitle: string;
+  isPaid: boolean;
+  isAutoConfirmed: boolean;
+  confirmedTimeStr: string;
+}
+
+export const formatPaymentProviderLabel = (provider?: string): string => {
+  if (!provider) return '';
+  const key = String(provider).toLowerCase().trim();
+  if (key === 'venmo') return 'Venmo';
+  if (key === 'paypal') return 'PayPal';
+  if (key === 'cashapp') return 'Cash App';
+  if (key === 'zelle') return 'Zelle';
+  if (key === 'counter') return 'Balcão';
+  if (key === 'square' || key === 'square_web') return 'Square';
+  if (key === 'zettle') return 'Zettle';
+  if (key === 'demo' || key === 'simulation') return 'Teste / Demo';
+  return provider.toUpperCase();
+};
+
+export const formatOrderTimestampShort = (ts: any): string => {
+  if (!ts) return '';
+  let d: Date | null = null;
+  if (ts?.toDate) {
+    d = ts.toDate();
+  } else if (ts?.seconds) {
+    d = new Date(ts.seconds * 1000);
+  } else if (ts instanceof Date) {
+    d = ts;
+  } else if (typeof ts === 'string' || typeof ts === 'number') {
+    const parsed = new Date(ts);
+    if (!isNaN(parsed.getTime())) d = parsed;
+  }
+  if (!d || isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+};
+
+/**
+ * Returns unified, clear Portuguese payment status display info for Admin list & Calendar modal.
+ */
+export const getOrderPaymentDisplay = (order: Order): OrderPaymentDisplayInfo => {
+  const providerRaw = order.paymentProvider || order.onlinePaymentProvider;
+  const providerLabel = formatPaymentProviderLabel(providerRaw);
+  const isAutoConfirmed = Boolean(order.webhookSecretVerified);
+  const confirmedTimeStr = formatOrderTimestampShort(order.paymentConfirmedAt);
+
+  if (order.paymentStatus === 'paid' || order.paymentStatus === 'full') {
+    const badgeLabel = providerLabel
+      ? `PAGO VIA ${providerLabel.toUpperCase()}`
+      : 'PAGO / RECEBIDO';
+    const title = providerLabel
+      ? `Pago via ${providerLabel}`
+      : 'Pagamento Recebido';
+    const parts: string[] = [];
+    if (isAutoConfirmed) {
+      parts.push('Confirmado automaticamente via e-mail');
+    } else if (order.paymentStatus === 'paid') {
+      parts.push('Pagamento confirmado');
+    } else {
+      parts.push('Confirmado integralmente no painel');
+    }
+    if (confirmedTimeStr) {
+      parts.push(`às ${confirmedTimeStr}`);
+    }
+    return {
+      statusKey: 'paid',
+      tone: 'emerald',
+      providerLabel,
+      badgeLabel,
+      title,
+      subtitle: parts.join(' '),
+      isPaid: true,
+      isAutoConfirmed,
+      confirmedTimeStr,
+    };
+  }
+
+  if (order.paymentStatus === 'half') {
+    return {
+      statusKey: 'half',
+      tone: 'amber',
+      providerLabel,
+      badgeLabel: '50% RECEBIDO',
+      title: 'Sinal de 50% Recebido',
+      subtitle: 'Restante pendente na entrega ou retirada',
+      isPaid: false,
+      isAutoConfirmed: false,
+      confirmedTimeStr,
+    };
+  }
+
+  if (order.paymentStatus === 'manual_verification') {
+    const badgeLabel = providerLabel
+      ? `CONFERIR PAGAMENTO (${providerLabel.toUpperCase()})`
+      : 'CONFERIR PAGAMENTO';
+    const title =
+      providerRaw === 'counter'
+        ? 'Pagamento no Balcão'
+        : providerLabel
+          ? `Conferir recebimento (${providerLabel})`
+          : 'Conferir Pagamento Manualmente';
+    const subtitle =
+      providerRaw === 'counter'
+        ? 'Cliente escolheu pagar no balcão — confirme após receber'
+        : 'Cliente informou que pagou — aguardando e-mail automático ou confirmação manual';
+    return {
+      statusKey: 'manual_verification',
+      tone: 'amber',
+      providerLabel,
+      badgeLabel,
+      title,
+      subtitle,
+      isPaid: false,
+      isAutoConfirmed: false,
+      confirmedTimeStr: '',
+    };
+  }
+
+  if (order.paymentStatus === 'awaiting_payment') {
+    return {
+      statusKey: 'awaiting_payment',
+      tone: 'sky',
+      providerLabel,
+      badgeLabel: 'AGUARDANDO PAGAMENTO (QR)',
+      title: 'Aguardando Pagamento via QR Code',
+      subtitle: 'Assim que o e-mail de confirmação chegar no Gmail, o status mudará para Pago automaticamente',
+      isPaid: false,
+      isAutoConfirmed: false,
+      confirmedTimeStr: '',
+    };
+  }
+
+  return {
+    statusKey: 'pending',
+    tone: 'rose',
+    providerLabel,
+    badgeLabel: 'NÃO RECEBIDO',
+    title: 'Pagamento Não Recebido',
+    subtitle: 'Nenhuma confirmação de recebimento registrada ainda',
+    isPaid: false,
+    isAutoConfirmed: false,
+    confirmedTimeStr: '',
+  };
+};
+

@@ -22,7 +22,7 @@ import { OrdersCalendar } from './OrdersCalendar';
 import { PricingAdmin } from './PricingAdmin';
 import { SortMenuAdmin } from './SortMenuAdmin';
 import { COUNTRY_OPTIONS, CURRENCY_OPTIONS, formatPhoneByCountry, getCleanWhatsAppPhone, getCurrencySymbol } from '../utils/countryUtils';
-import { sendOrderToWhatsApp } from '../utils/orderUtils';
+import { sendOrderToWhatsApp, getOrderPaymentDisplay } from '../utils/orderUtils';
 import { geocodeAddress } from '../utils/deliveryUtils';
 import { restoreBaseCatalogToFirestore } from '../services/catalogSeedService';
 import {
@@ -1778,7 +1778,8 @@ export default function Admin({
   const updateOrderPaymentStatus = async (orderId: string, status: 'pending' | 'half' | 'full' | 'paid') => {
     try {
       await updateDoc(doc(db, 'pedidos', orderId), {
-        paymentStatus: status
+        paymentStatus: status,
+        ...(status === 'paid' || status === 'full' ? { paymentConfirmedAt: new Date().toISOString() } : {})
       });
       toast.success('Status de pagamento atualizado com sucesso!');
     } catch (err) {
@@ -7412,11 +7413,29 @@ export default function Admin({
                             {order.tableOrPager ? ` • #${order.tableOrPager}` : ''}
                           </span>
                         )}
-                        {order.paymentStatus === 'paid' && (
-                          <span className="px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-black uppercase tracking-wider">
-                            PAID (TERMINAL)
-                          </span>
-                        )}
+                        {(() => {
+                          const pInfo = getOrderPaymentDisplay(order);
+                          const pillClass =
+                            pInfo.tone === 'emerald'
+                              ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                              : pInfo.tone === 'amber'
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : pInfo.tone === 'sky'
+                                  ? 'bg-sky-100 text-sky-900 border-sky-300'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200';
+                          return (
+                            <>
+                              <span className={`px-2.5 py-0.5 rounded-lg border text-[11px] font-black uppercase tracking-wider ${pillClass}`}>
+                                {pInfo.badgeLabel}
+                              </span>
+                              {pInfo.isAutoConfirmed && (
+                                <span className="px-2 py-0.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wider">
+                                  ✓ AUTO E-MAIL{pInfo.confirmedTimeStr ? ` · ${pInfo.confirmedTimeStr}` : ''}
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                         {(order.isB2B || order.isPJ) && (
                           <span className="px-3 py-1 bg-amber-100 text-amber-800 text-xs font-black rounded-full flex items-center gap-1 border border-amber-200 uppercase tracking-widest animate-pulse">
                             ★ Corporate PJ

@@ -137,11 +137,13 @@ function processEasyKioskiPayments() {
 
   var threads = GmailApp.search(searchQuery, 0, 20);
   if (!threads || threads.length === 0) {
+    Logger.log('[EasyKioski] Nenhum e-mail novo de pagamento não lido encontrado.');
     return;
   }
 
-  // Consulta no Firestore os pedidos pendentes dos últimos 15 minutos
+  // Consulta no Firestore os pedidos pendentes ou em verificação manual dos últimos 15 minutos
   var pendingOrders = fetchPendingKioskOrders_(ORDER_LOOKBACK_MINUTES);
+  Logger.log('[EasyKioski] E-mails encontrados: ' + threads.length + ' | Pedidos aguardando confirmação: ' + pendingOrders.length);
   if (!pendingOrders || pendingOrders.length === 0) {
     return;
   }
@@ -172,12 +174,18 @@ function processEasyKioskiPayments() {
       var parsedOrderNumber = extractOrderNumber_(combinedText);
 
       if (paidAmount === null && parsedOrderNumber === null) {
+        Logger.log('[EasyKioski] E-mail ignorado (sem valor $ ou #pedido): ' + subject);
         continue;
       }
 
       // Faz match prioritário pelo orderNumber OU pelo valor exato do pedido mais recente
       var matchedOrder = findMatchingOrder_(pendingOrders, parsedOrderNumber, paidAmount);
       if (!matchedOrder) {
+        Logger.log(
+          '[EasyKioski] Sem pedido correspondente para ' + provider.toUpperCase() +
+          ' | Pedido lido: ' + (parsedOrderNumber !== null ? '#' + parsedOrderNumber : 'N/A') +
+          ' | Valor lido: ' + (paidAmount !== null ? '$' + paidAmount.toFixed(2) : 'N/A')
+        );
         continue;
       }
 
@@ -258,8 +266,15 @@ function fetchPendingKioskOrders_(lookbackMinutes) {
       where: {
         fieldFilter: {
           field: { fieldPath: 'paymentStatus' },
-          op: 'EQUAL',
-          value: { stringValue: 'awaiting_payment' }
+          op: 'IN',
+          value: {
+            arrayValue: {
+              values: [
+                { stringValue: 'awaiting_payment' },
+                { stringValue: 'manual_verification' }
+              ]
+            }
+          }
         }
       }
     }

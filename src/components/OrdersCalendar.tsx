@@ -20,11 +20,12 @@ import {
   Edit2,
   MessageCircle,
   Save,
-  Calendar
+  Calendar,
+  CreditCard
 } from 'lucide-react';
 import { Order, Product, Settings } from '../types';
 import { getCleanWhatsAppPhone, getCurrencySymbol } from '../utils/countryUtils';
-import { sendOrderToWhatsApp, getContrastText } from '../utils/orderUtils';
+import { sendOrderToWhatsApp, getContrastText, getOrderPaymentDisplay } from '../utils/orderUtils';
 import { db } from '../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { toast } from 'sonner';
@@ -280,6 +281,40 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
     } catch (err) {
       console.error('Erro ao atualizar status de produção:', err);
       toast.error('Erro ao dar baixa no pedido. Verifique sua conexão.');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  // Keep open modal synced with live Firestore updates (e.g. automatic Apps Script payment confirmation)
+  const liveSelectedOrder = useMemo(() => {
+    if (!selectedOrder) return null;
+    return orders.find(o => o.id === selectedOrder.id) || selectedOrder;
+  }, [selectedOrder, orders]);
+
+  const handleUpdateModalPaymentStatus = async (
+    order: Order,
+    nextStatus: 'paid' | 'pending'
+  ) => {
+    if (!order?.id) return;
+    setUpdatingOrderId(order.id);
+    try {
+      const payload: Record<string, any> = {
+        paymentStatus: nextStatus,
+        ...(nextStatus === 'paid' ? { paymentConfirmedAt: new Date().toISOString() } : {}),
+      };
+      await updateDoc(doc(db, 'pedidos', order.id), payload);
+      if (selectedOrder?.id === order.id) {
+        setSelectedOrder({ ...order, ...payload });
+      }
+      toast.success(
+        nextStatus === 'paid'
+          ? `Pagamento confirmado no pedido${order.orderNumber ? ` #${order.orderNumber}` : ''}!`
+          : `Pagamento marcado como não recebido.`
+      );
+    } catch (err) {
+      console.error('Erro ao atualizar pagamento:', err);
+      toast.error('Erro ao atualizar status do pagamento.');
     } finally {
       setUpdatingOrderId(null);
     }
@@ -626,6 +661,28 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                   const isDone = order.kitchenStatus === 'completed';
                   const isUpdating = updatingOrderId === order.id;
                   const orderTag = order.orderNumber ? `#${order.orderNumber}` : `#${order.id.slice(-4).toUpperCase()}`;
+                  const paymentInfo = getOrderPaymentDisplay(order);
+                  const paymentPillClass =
+                    paymentInfo.tone === 'emerald'
+                      ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                      : paymentInfo.tone === 'amber'
+                        ? 'bg-amber-100 text-amber-900 border-amber-300'
+                        : paymentInfo.tone === 'sky'
+                          ? 'bg-sky-100 text-sky-900 border-sky-300'
+                          : 'bg-rose-50 text-rose-700 border-rose-200';
+                  const shortPaymentLabel = paymentInfo.isPaid
+                    ? paymentInfo.providerLabel
+                      ? `✓ Pago · ${paymentInfo.providerLabel}`
+                      : '✓ Pago'
+                    : paymentInfo.statusKey === 'awaiting_payment'
+                      ? '⏳ Aguardando Pagto'
+                      : paymentInfo.statusKey === 'manual_verification'
+                        ? paymentInfo.providerLabel
+                          ? `⚠ Conferir · ${paymentInfo.providerLabel}`
+                          : '⚠ Conferir Pagto'
+                        : paymentInfo.statusKey === 'half'
+                          ? '⏳ 50% Pago'
+                          : 'Não Pago';
 
                   return (
                     <div
@@ -634,7 +691,9 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                       className={`rounded-2xl border p-4 flex flex-col justify-between gap-3 transition-all cursor-pointer shadow-sm hover:shadow-md ${
                         isDone
                           ? 'bg-emerald-50/50 border-emerald-200 opacity-75'
-                          : 'bg-white border-amber-200/90 ring-1 ring-amber-100'
+                          : paymentInfo.isPaid
+                            ? 'bg-white border-emerald-300/90 ring-1 ring-emerald-100'
+                            : 'bg-white border-amber-200/90 ring-1 ring-amber-100'
                       }`}
                     >
                       <div className="space-y-3">
@@ -657,7 +716,7 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                             <h4 className={`font-serif font-black text-base mt-1.5 truncate ${isDone ? 'line-through text-gray-500' : 'text-gray-900'}`}>
                               {order.isB2B || order.isPJ ? (order.b2bCompanyName || order.customerName) : order.customerName}
                             </h4>
-                            <div className="flex items-center gap-2 text-[11px] font-bold text-stone-600 mt-1">
+                            <div className="flex items-center gap-2 flex-wrap text-[11px] font-bold text-stone-600 mt-1">
                               {(() => {
                                 const modality = getOrderModality(order, isPickup);
                                 return (
@@ -674,9 +733,16 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                               )}
                             </div>
                           </div>
-                          <span className="font-black text-sm text-gray-900 shrink-0 tabular-nums">
-                            {formatCurrency(order.total)}
-                          </span>
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            <span className="font-black text-sm text-gray-900 tabular-nums">
+                              {formatCurrency(order.total)}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-md border text-[10px] font-black uppercase tracking-wider whitespace-nowrap ${paymentPillClass}`}
+                            >
+                              {shortPaymentLabel}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Production Items List */}
@@ -843,8 +909,25 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                           >
                             <div className="space-y-1.5">
                               {cellOrders.map(({ order, timeStr, isPickup }) => {
-                                const isValidated = order.paymentStatus === 'half' || order.paymentStatus === 'full' || order.paymentStatus === 'paid';
+                                const paymentInfo = getOrderPaymentDisplay(order);
                                 const modality = getOrderModality(order, isPickup);
+                                const gridPillClass =
+                                  paymentInfo.tone === 'emerald'
+                                    ? 'bg-emerald-600 text-white'
+                                    : paymentInfo.tone === 'amber'
+                                      ? 'bg-amber-500 text-white'
+                                      : paymentInfo.tone === 'sky'
+                                        ? 'bg-sky-600 text-white'
+                                        : 'bg-rose-100 text-rose-700';
+                                const gridPillText = paymentInfo.isPaid
+                                  ? 'PAGO'
+                                  : paymentInfo.statusKey === 'awaiting_payment'
+                                    ? 'AGUARD.'
+                                    : paymentInfo.statusKey === 'manual_verification'
+                                      ? 'CONFERIR'
+                                      : paymentInfo.statusKey === 'half'
+                                        ? '50%'
+                                        : 'PEND.';
                                 return (
                                   <motion.button
                                     key={order.id}
@@ -852,11 +935,13 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                                     whileHover={{ scale: 1.015 }}
                                     whileTap={{ scale: 0.985 }}
                                     onClick={() => setSelectedOrder(order)}
-                                    title={`${modality.fullLabel} • ${timeStr}`}
+                                    title={`${modality.fullLabel} • ${timeStr} • ${paymentInfo.title}`}
                                     className={`w-full text-left p-2 rounded-xl border shadow-xs transition-all cursor-pointer flex flex-col gap-1 ${
-                                      isValidated
-                                        ? 'bg-amber-50/90 border-amber-300/90 text-stone-900 hover:bg-amber-100/70'
-                                        : 'bg-white border-gray-200 text-stone-900 hover:bg-gray-50'
+                                      paymentInfo.isPaid
+                                        ? 'bg-emerald-50/75 border-emerald-300/90 text-stone-900 hover:bg-emerald-100/60'
+                                        : paymentInfo.tone === 'amber' || paymentInfo.tone === 'sky'
+                                          ? 'bg-amber-50/80 border-amber-300/80 text-stone-900 hover:bg-amber-100/60'
+                                          : 'bg-white border-gray-200 text-stone-900 hover:bg-gray-50'
                                     }`}
                                   >
                                     <div className="flex items-center justify-between gap-1">
@@ -870,14 +955,9 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                                     <div className="flex items-center gap-1.5 text-[10px] font-semibold text-stone-600">
                                       <ModalityIcon kind={modality.kind} size={13} className="text-stone-900 shrink-0" />
                                       <span className="tabular-nums">{timeStr}</span>
-                                      {isValidated && (
-                                        <span
-                                          className="ml-auto text-[9px] font-black px-1.5 py-0.5 text-white rounded"
-                                          style={{ backgroundColor: settings?.primaryColor || '#865d39' }}
-                                        >
-                                          OK
-                                        </span>
-                                      )}
+                                      <span className={`ml-auto text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${gridPillClass}`}>
+                                        {gridPillText}
+                                      </span>
                                     </div>
                                   </motion.button>
                                 );
@@ -938,35 +1018,49 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                   <div className="space-y-2 flex-grow overflow-y-auto max-h-[300px]">
                     {dayOrders.length > 0 ? (
                       dayOrders.map(({ order, timeStr, isPickup }) => {
-                        const isValidated = order.paymentStatus === 'half' || order.paymentStatus === 'full' || order.paymentStatus === 'paid';
+                        const paymentInfo = getOrderPaymentDisplay(order);
                         const modality = getOrderModality(order, isPickup);
+                        const agendaPillClass =
+                          paymentInfo.tone === 'emerald'
+                            ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                            : paymentInfo.tone === 'amber'
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                              : paymentInfo.tone === 'sky'
+                                ? 'bg-sky-100 text-sky-900 border border-sky-300'
+                                : 'bg-rose-50 text-rose-700 border border-rose-200';
+                        const agendaPillText = paymentInfo.isPaid
+                          ? paymentInfo.providerLabel
+                            ? `Pago · ${paymentInfo.providerLabel}`
+                            : 'Pago'
+                          : paymentInfo.statusKey === 'awaiting_payment'
+                            ? 'Aguardando Pagto'
+                            : paymentInfo.statusKey === 'manual_verification'
+                              ? 'Conferir Pagto'
+                              : paymentInfo.statusKey === 'half'
+                                ? '50% Pago'
+                                : 'Não Pago';
                         return (
                           <div
                             key={order.id}
                             onClick={() => setSelectedOrder(order)}
                             className="p-3 rounded-xl border border-gray-200 bg-gray-50/70 hover:bg-white hover:shadow-md transition-all cursor-pointer space-y-1.5"
                           >
-                            <div className="flex items-center justify-between">
-                              <span className="font-extrabold text-xs text-gray-900">
-                                {order.customerName}
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-extrabold text-xs text-gray-900 truncate">
+                                {order.orderNumber ? `#${order.orderNumber} · ` : ''}{order.customerName}
                               </span>
-                              <span className="font-black text-xs text-stone-900 tabular-nums">
+                              <span className="font-black text-xs text-stone-900 tabular-nums shrink-0">
                                 {formatCurrency(order.total)}
                               </span>
                             </div>
-                            <div className="flex items-center justify-between text-[11px] text-stone-600 font-medium">
+                            <div className="flex items-center justify-between gap-2 text-[11px] text-stone-600 font-medium">
                               <span className="flex items-center gap-1.5">
                                 <ModalityIcon kind={modality.kind} size={13} className="text-stone-800 shrink-0" />
                                 {modality.shortLabel} • {timeStr}
                               </span>
-                              {isValidated && (
-                                <span
-                                  className="text-[9px] font-black px-1.5 py-0.5 rounded text-white"
-                                  style={{ backgroundColor: settings?.primaryColor || '#865d39' }}
-                                >
-                                  Validado
-                                </span>
-                              )}
+                              <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider shrink-0 ${agendaPillClass}`}>
+                                {agendaPillText}
+                              </span>
                             </div>
                           </div>
                         );
@@ -1070,9 +1164,28 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
       {/* DETALHES DO AGENDAMENTO MODAL (IMAGE 2 STYLE) */}
       {/* ========================================================================= */}
       <AnimatePresence>
-        {selectedOrder && (() => {
-          const { timeStr, isPickup } = parseOrderDateTime(selectedOrder);
-          const cleanPhone = selectedOrder.phone ? getCleanWhatsAppPhone(selectedOrder.phone, settings?.whatsappCountryCode || '+55') : '';
+        {liveSelectedOrder && (() => {
+          const activeOrder = liveSelectedOrder;
+          const selectedOrder = liveSelectedOrder;
+          const { timeStr, isPickup } = parseOrderDateTime(activeOrder);
+          const cleanPhone = activeOrder.phone ? getCleanWhatsAppPhone(activeOrder.phone, settings?.whatsappCountryCode || '+55') : '';
+          const paymentInfo = getOrderPaymentDisplay(activeOrder);
+          const paymentCardTone =
+            paymentInfo.tone === 'emerald'
+              ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+              : paymentInfo.tone === 'amber'
+                ? 'bg-amber-50/80 border-amber-200 text-amber-950'
+                : paymentInfo.tone === 'sky'
+                  ? 'bg-sky-50/80 border-sky-200 text-sky-950'
+                  : 'bg-rose-50/70 border-rose-200 text-rose-950';
+          const paymentBadgeTone =
+            paymentInfo.tone === 'emerald'
+              ? 'bg-emerald-600 text-white'
+              : paymentInfo.tone === 'amber'
+                ? 'bg-amber-600 text-white'
+                : paymentInfo.tone === 'sky'
+                  ? 'bg-sky-600 text-white'
+                  : 'bg-rose-600 text-white';
           
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1093,13 +1206,20 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                 {/* Header */}
                 <div className="p-6 pb-4 border-b border-gray-100 flex items-start justify-between">
                   <div>
-                    <span className="text-[11px] font-extrabold tracking-[0.25em] text-gray-400 uppercase font-sans">
-                      DETALHES DO AGENDAMENTO
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] font-extrabold tracking-[0.25em] text-gray-400 uppercase font-sans">
+                        DETALHES DO AGENDAMENTO
+                      </span>
+                      {activeOrder.orderNumber && (
+                        <span className="px-2 py-0.5 rounded-md bg-stone-900 text-white text-[11px] font-black tracking-wider">
+                          #{activeOrder.orderNumber}
+                        </span>
+                      )}
+                    </div>
                     <h2 className="text-2xl sm:text-3xl font-serif font-bold text-gray-900 mt-1">
-                      {selectedOrder.isB2B || selectedOrder.isPJ
-                        ? (selectedOrder.b2bCompanyName || selectedOrder.customerName)
-                        : selectedOrder.customerName
+                      {activeOrder.isB2B || activeOrder.isPJ
+                        ? (activeOrder.b2bCompanyName || activeOrder.customerName)
+                        : activeOrder.customerName
                       }
                     </h2>
                   </div>
@@ -1277,6 +1397,52 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                     </div>
                   </div>
 
+                  {/* Payment Status Card */}
+                  <div className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${paymentCardTone}`}>
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-extrabold tracking-[0.2em] uppercase opacity-70 flex items-center gap-1">
+                          <CreditCard size={12} /> STATUS DO PAGAMENTO
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider ${paymentBadgeTone}`}>
+                          {paymentInfo.badgeLabel}
+                        </span>
+                        {paymentInfo.isAutoConfirmed && (
+                          <span className="px-2 py-0.5 rounded-md bg-white/80 text-emerald-800 border border-emerald-300 text-[10px] font-black uppercase tracking-wider">
+                            ✓ Auto E-mail
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm font-bold leading-snug">
+                        {paymentInfo.title}
+                      </p>
+                      <p className="text-xs opacity-80 leading-snug">
+                        {paymentInfo.subtitle}
+                      </p>
+                    </div>
+                    <div className="shrink-0">
+                      {!paymentInfo.isPaid ? (
+                        <button
+                          type="button"
+                          disabled={updatingOrderId === activeOrder.id}
+                          onClick={() => handleUpdateModalPaymentStatus(activeOrder, 'paid')}
+                          className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
+                        >
+                          <CheckCircle2 size={14} /> Confirmar Recebimento
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={updatingOrderId === activeOrder.id}
+                          onClick={() => handleUpdateModalPaymentStatus(activeOrder, 'pending')}
+                          className="px-3 py-1.5 rounded-xl bg-white/80 hover:bg-white text-emerald-900 border border-emerald-300 text-[11px] font-bold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                        >
+                          Marcar Pendente
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Contact & Customer Info Section */}
                   <div className="space-y-3">
                     <span className="text-[11px] font-extrabold tracking-[0.25em] text-gray-900 uppercase font-sans">
@@ -1369,15 +1535,21 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                         <span className="font-medium">{formatCurrency(selectedOrder.subtotal)}</span>
                       </div>
                     )}
-                    {selectedOrder.taxAmount !== undefined && selectedOrder.taxAmount > 0 && (
+                    {activeOrder.taxAmount !== undefined && activeOrder.taxAmount > 0 && (
                       <div className="flex justify-between text-xs text-gray-600">
-                        <span>Impostos ({selectedOrder.taxRate || 8.25}%):</span>
-                        <span className="font-medium">{formatCurrency(selectedOrder.taxAmount)}</span>
+                        <span>Impostos ({activeOrder.taxRate || 8.25}%):</span>
+                        <span className="font-medium">{formatCurrency(activeOrder.taxAmount)}</span>
+                      </div>
+                    )}
+                    {activeOrder.tipAmount !== undefined && activeOrder.tipAmount > 0 && (
+                      <div className="flex justify-between text-xs text-gray-600">
+                        <span>Gorjeta{activeOrder.tipPercent ? ` (${activeOrder.tipPercent}%)` : ''}:</span>
+                        <span className="font-medium">{formatCurrency(activeOrder.tipAmount)}</span>
                       </div>
                     )}
                     <div className="flex justify-between text-lg sm:text-xl font-extrabold text-gray-900 pt-2 border-t border-gray-100">
                       <span>Total Geral:</span>
-                      <span className="text-gray-900">{formatCurrency(selectedOrder.total)}</span>
+                      <span className="text-gray-900">{formatCurrency(activeOrder.total)}</span>
                     </div>
                   </div>
 

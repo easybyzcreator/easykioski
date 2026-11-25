@@ -77,7 +77,7 @@ function playSoftOrderChime() {
 
 export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpenAdmin }) => {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [activeTab, setActiveTab] = useState<'preparing' | 'ready'>('preparing');
+  const [activeTab, setActiveTab] = useState<'awaiting_payment' | 'preparing' | 'ready'>('preparing');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [nowMs, setNowMs] = useState(Date.now());
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -91,6 +91,23 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
     return () => window.clearInterval(interval);
   }, []);
 
+  const isOrderPaidForKitchen = (o: Order): boolean => {
+    if (o.paymentStatus === 'paid' || o.paymentStatus === 'full') return true;
+    // Legacy kiosk orders created before paymentStatus existed
+    if (!o.paymentStatus && o.source === 'kiosk') return true;
+    return false;
+  };
+
+  const isOrderAwaitingPayment = (o: Order): boolean => {
+    if (o.kitchenStatus === 'ready' || o.kitchenStatus === 'completed') return false;
+    return (
+      o.paymentStatus === 'awaiting_payment' ||
+      o.paymentStatus === 'manual_verification' ||
+      o.paymentStatus === 'pending' ||
+      (!o.paymentStatus && o.source !== 'kiosk')
+    );
+  };
+
   // Real-time Firestore listener
   useEffect(() => {
     const unsub = onSnapshot(
@@ -98,54 +115,36 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
       (snapshot) => {
         const fetched = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Order));
 
-        const requirePaidMobile = settings.mobilePickupRequirePaidForKds !== false;
-
-        // Exclude orders still awaiting payment; enforce paid/manual_verification for Mobile Pickup when enabled
-        const paidOrders = fetched.filter((o) => {
-          if (o.paymentStatus === 'awaiting_payment') return false;
-          const isMobile =
-            o.orderSource === 'mobile_pickup' ||
-            (o.source === 'online' && o.deliveryType === 'pickup');
-          if (isMobile) {
-            if (requirePaidMobile) {
-              return (
-                o.paymentStatus === 'paid' ||
-                o.paymentStatus === 'full' ||
-                o.paymentStatus === 'manual_verification'
-              );
-            }
-            return true;
-          }
-          return (
-            o.paymentStatus === 'paid' ||
-            o.paymentStatus === 'full' ||
-            o.paymentStatus === 'manual_verification' ||
-            o.source === 'kiosk'
-          );
-        });
-
-        const preparingNow = paidOrders.filter(
-          (o) => o.kitchenStatus !== 'ready' && o.kitchenStatus !== 'completed'
+        // Orders currently active in Kitchen Preparing (paid & not yet ready/completed)
+        const preparingNow = fetched.filter(
+          (o) =>
+            isOrderPaidForKitchen(o) &&
+            o.kitchenStatus !== 'ready' &&
+            o.kitchenStatus !== 'completed'
         );
 
         if (initialLoadDoneRef.current) {
-          let hasNewOrder = false;
-          for (const ord of preparingNow) {
-            if (!knownPreparingIdsRef.current.has(ord.id)) {
-              hasNewOrder = true;
-              break;
-            }
-          }
-          if (hasNewOrder && soundEnabled) {
+          const newlyPaidOrders = preparingNow.filter(
+            (ord) => !knownPreparingIdsRef.current.has(ord.id)
+          );
+          if (newlyPaidOrders.length > 0 && soundEnabled) {
             playSoftOrderChime();
-            toast.info('New order received in Kitchen!');
+            const first = newlyPaidOrders[0];
+            const tag = first.orderNumber
+              ? `#${first.orderNumber}`
+              : `#${first.id.slice(-4).toUpperCase()}`;
+            toast.info(
+              newlyPaidOrders.length === 1
+                ? `Order ${tag} paid & moved to Preparing!`
+                : `${newlyPaidOrders.length} new paid orders in Kitchen!`
+            );
           }
         } else {
           initialLoadDoneRef.current = true;
         }
 
         knownPreparingIdsRef.current = new Set(preparingNow.map((o) => o.id));
-        setOrders(paidOrders);
+        setOrders(fetched);
       },
       (err) => {
         console.error('[KDS] Firestore listener error:', err);
@@ -153,17 +152,36 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
     );
 
     return () => unsub();
-  }, [soundEnabled, settings.mobilePickupRequirePaidForKds]);
+  }, [soundEnabled]);
+
+  const awaitingPaymentOrders = useMemo(() => {
+    return orders
+      .filter((o) => isOrderAwaitingPayment(o))
+      .sort((a, b) => getOrderTimestampMs(a.createdAt) - getOrderTimestampMs(b.createdAt)); // FIFO
+  }, [orders]);
 
   const preparingOrders = useMemo(() => {
     return orders
-      .filter((o) => o.kitchenStatus !== 'ready' && o.kitchenStatus !== 'completed')
-      .sort((a, b) => getOrderTimestampMs(a.createdAt) - getOrderTimestampMs(b.createdAt)); // FIFO
+      .filter(
+        (o) =>
+          isOrderPaidForKitchen(o) &&
+          o.kitchenStatus !== 'ready' &&
+          o.kitchenStatus !== 'completed'
+      )
+      .sort(
+        (a, b) =>
+          getOrderTimestampMs(a.paymentConfirmedAt || a.createdAt) -
+          getOrderTimestampMs(b.paymentConfirmedAt || b.createdAt)
+      ); // Strict FIFO order of kitchen arrival (payment confirmation time -> createdAt)
   }, [orders]);
 
   const readyOrders = useMemo(() => {
     return orders
-      .filter((o) => o.kitchenStatus === 'ready' || o.kitchenStatus === 'completed')
+      .filter(
+        (o) =>
+          (o.kitchenStatus === 'ready' || o.kitchenStatus === 'completed') &&
+          (isOrderPaidForKitchen(o) || o.paymentStatus === 'half')
+      )
       .sort((a, b) => getOrderTimestampMs(b.readyAt || b.createdAt) - getOrderTimestampMs(a.readyAt || a.createdAt));
   }, [orders]);
 
@@ -234,8 +252,10 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
             <h1 className="font-serif font-extrabold text-xl sm:text-2xl tracking-tight text-white! truncate">
               {settings.brandName || 'Easy Kioski'} · Kitchen Display
             </h1>
-            <div className="text-xs text-stone-400 flex items-center gap-2">
+            <div className="text-xs text-stone-400 flex items-center gap-2 flex-wrap">
               <span>Live Queue</span>
+              <span aria-hidden="true">·</span>
+              <span className="tabular-nums text-amber-300 font-semibold">{awaitingPaymentOrders.length} awaiting</span>
               <span aria-hidden="true">·</span>
               <span className="tabular-nums">{preparingOrders.length} active</span>
               <span aria-hidden="true">·</span>
@@ -246,6 +266,20 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
 
         {/* Filter Segmented Control */}
         <div className="flex items-center gap-1 p-1 bg-white/8 rounded-2xl border border-white/10">
+          <button
+            type="button"
+            onClick={() => setActiveTab('awaiting_payment')}
+            className={`min-h-[42px] px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+              activeTab === 'awaiting_payment'
+                ? 'bg-amber-400 text-stone-950 shadow-sm'
+                : 'text-stone-300 hover:text-white'
+            }`}
+          >
+            {awaitingPaymentOrders.length > 0 && activeTab !== 'awaiting_payment' && (
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+            )}
+            <span>Awaiting Payment ({awaitingPaymentOrders.length})</span>
+          </button>
           <button
             type="button"
             onClick={() => setActiveTab('preparing')}
@@ -307,7 +341,221 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
 
       {/* Main Orders Grid */}
       <main className="flex-grow p-4 sm:p-8 max-w-[1600px] w-full mx-auto">
-        {activeTab === 'preparing' ? (
+        {activeTab === 'awaiting_payment' ? (
+          awaitingPaymentOrders.length === 0 ? (
+            <div className="min-h-[60vh] flex flex-col items-center justify-center text-center space-y-4">
+              <div className="w-20 h-20 rounded-3xl bg-white/6 border border-white/10 flex items-center justify-center text-stone-400">
+                <Clock size={36} />
+              </div>
+              <div className="space-y-1">
+                <h2 className="text-2xl font-serif font-bold text-white!">No orders awaiting payment</h2>
+                <p className="text-sm text-stone-400 max-w-sm">
+                  Orders pending QR payment or counter confirmation will appear here and move automatically to Preparing once paid.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 items-start">
+              <AnimatePresence>
+                {awaitingPaymentOrders.map((order) => {
+                  const elapsedMs = Math.max(0, nowMs - getOrderTimestampMs(order.createdAt));
+                  const orderDisplayNum = order.orderNumber
+                    ? `#${order.orderNumber}`
+                    : `#${order.id.slice(-4).toUpperCase()}`;
+                  const isMobilePickup =
+                    order.orderSource === 'mobile_pickup' ||
+                    (order.source === 'online' && order.deliveryType === 'pickup');
+                  const pickupTimeDisplay =
+                    order.pickupSchedule ||
+                    order.scheduledTime ||
+                    (order.pickupTime
+                      ? order.pickupDate
+                        ? `${order.pickupDate} ${order.pickupTime}`
+                        : order.pickupTime
+                      : order.pickupType === 'asap'
+                        ? `ASAP (~${settings.defaultPrepMinutes || 25} MIN)`
+                        : '');
+                  const currency = settings.currency || 'USD';
+                  const providerBadge =
+                    order.paymentProvider === 'venmo'
+                      ? 'VENMO'
+                      : order.paymentProvider === 'paypal'
+                        ? 'PAYPAL'
+                        : order.paymentProvider === 'cashapp'
+                          ? 'CASH APP'
+                          : order.paymentProvider === 'zelle'
+                            ? 'ZELLE'
+                            : order.paymentProvider === 'counter'
+                              ? 'COUNTER'
+                              : '';
+                  const isManualVerification = order.paymentStatus === 'manual_verification';
+
+                  return (
+                    <motion.article
+                      key={order.id}
+                      layout
+                      initial={{ opacity: 0, y: 16, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.94 }}
+                      className="bg-[#201E1C] rounded-3xl border border-amber-400/75 ring-1 ring-amber-400/20 shadow-2xl overflow-hidden flex flex-col"
+                    >
+                      {/* Channel Badge Strip */}
+                      <div
+                        className={`px-5 py-2 flex items-center justify-between gap-2 text-[11px] font-black uppercase tracking-widest border-b ${
+                          isMobilePickup
+                            ? 'bg-sky-500/20 text-sky-200 border-sky-400/30'
+                            : 'bg-white/[0.04] text-stone-300 border-white/10'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5">
+                          {isMobilePickup ? (
+                            <>
+                              <Smartphone size={13} className="text-sky-300" />
+                              MOBILE PICKUP
+                            </>
+                          ) : order.orderType === 'takeout' ? (
+                            <>
+                              <ShoppingBag size={13} />
+                              TOTEM · TAKEOUT
+                            </>
+                          ) : (
+                            <>
+                              <UtensilsCrossed size={13} />
+                              TOTEM · DINE-IN
+                            </>
+                          )}
+                        </span>
+                        {isMobilePickup && pickupTimeDisplay ? (
+                          <span className="px-2 py-0.5 rounded-md bg-sky-400/25 text-white font-black tracking-wide">
+                            PICKUP: {pickupTimeDisplay.toUpperCase()}
+                          </span>
+                        ) : providerBadge ? (
+                          <span className="px-2 py-0.5 rounded-md bg-white/10 text-stone-200 font-black tracking-wide">
+                            {providerBadge}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {/* Awaiting Payment Status Banner */}
+                      <div className="px-4 py-3 bg-amber-400 text-stone-950 flex items-center justify-between gap-3 border-b border-amber-500">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <AlertTriangle size={18} className="shrink-0" />
+                          <div className="leading-tight min-w-0">
+                            <div className="text-xs font-black uppercase tracking-wider truncate">
+                              {isManualVerification ? 'VERIFY PAYMENT' : 'AWAITING PAYMENT'} ({formatMoney(order.total, currency)})
+                            </div>
+                            <div className="text-[10px] font-bold opacity-85 truncate">
+                              {isManualVerification
+                                ? providerBadge
+                                  ? `Via ${providerBadge} · Moves to Preparing when paid`
+                                  : 'Tap confirm once received'
+                                : 'Listening for automatic confirmation...'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Ticket Top Header */}
+                      <div className="p-5 pb-4 border-b border-white/10 flex items-start justify-between gap-3 bg-white/[0.02]">
+                        <div>
+                          <div className="flex items-baseline gap-2.5">
+                            <span className="text-4xl font-serif font-black tracking-tight tabular-nums text-white">
+                              {orderDisplayNum}
+                            </span>
+                            {!isMobilePickup && (
+                              <span className="text-xs font-bold uppercase tracking-wider text-stone-300 flex items-center gap-1">
+                                {order.orderType === 'takeout' ? (
+                                  <>
+                                    <ShoppingBag size={13} /> TAKEOUT
+                                  </>
+                                ) : (
+                                  <>
+                                    <UtensilsCrossed size={13} /> DINE-IN
+                                  </>
+                                )}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-base font-bold text-[#FAF7F2] mt-1">
+                            {order.customerName || 'Guest'}
+                            {order.tableOrPager ? ` · ${order.tableOrPager}` : ''}
+                          </div>
+                          {isMobilePickup && order.phone && (
+                            <div className="text-xs font-bold text-sky-300 mt-1 flex items-center gap-1.5">
+                              <Phone size={12} />
+                              <span>{order.phone}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="px-3 py-1.5 rounded-xl border border-amber-400/40 bg-amber-500/15 text-amber-200 text-sm font-mono font-black tabular-nums flex items-center gap-1.5">
+                          <Clock size={14} />
+                          <span>{formatElapsed(elapsedMs)}</span>
+                        </div>
+                      </div>
+
+                      {/* Order Items */}
+                      <div className="p-5 space-y-3.5 flex-grow">
+                        {(order.items || []).map((item, idx) => {
+                          const mods = extractItemModifications(item);
+                          return (
+                            <div
+                              key={idx}
+                              className="pb-3 border-b border-white/8 last:border-b-0 last:pb-0 space-y-1.5"
+                            >
+                              <div className="flex items-start gap-2.5 text-lg font-bold leading-snug text-white">
+                                <span
+                                  className="px-2 py-0.5 rounded-lg text-sm font-black tabular-nums shrink-0 mt-0.5"
+                                  style={{ backgroundColor: primaryColor, color: '#ffffff' }}
+                                >
+                                  {item.quantity}x
+                                </span>
+                                <span>{item.title}</span>
+                              </div>
+                              {mods.length > 0 && (
+                                <div className="pl-9 space-y-1">
+                                  {mods.map((mod, mIdx) => (
+                                    <div
+                                      key={mIdx}
+                                      className={`text-xs font-extrabold uppercase tracking-wide ${
+                                        mod.startsWith('NO ') ? 'text-rose-300' : 'text-amber-300'
+                                      }`}
+                                    >
+                                      » {mod}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {order.observation && order.observation.trim() && (
+                          <div className="mt-3 p-3 rounded-2xl bg-amber-500/15 border border-amber-400/35 text-amber-200 text-xs font-bold uppercase tracking-wide">
+                            NOTE: {order.observation.trim()}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action Footer: Confirm Payment -> auto-migrates to Preparing */}
+                      <div className="p-4 pt-0 flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          disabled={updatingId === order.id}
+                          onClick={() => confirmPaymentManually(order)}
+                          className="flex-1 min-h-[54px] rounded-2xl bg-amber-400 hover:bg-amber-300 active:scale-[0.98] text-stone-950 font-extrabold text-sm tracking-wider uppercase shadow-lg flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <ShieldCheck size={20} />
+                          <span>CONFIRM PAYMENT → PREPARING</span>
+                        </button>
+                      </div>
+                    </motion.article>
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+          )
+        ) : activeTab === 'preparing' ? (
           preparingOrders.length === 0 ? (
             <div className="min-h-[60vh] flex flex-col items-center justify-center text-center space-y-4">
               <div className="w-20 h-20 rounded-3xl bg-white/6 border border-white/10 flex items-center justify-center text-stone-400">
@@ -324,7 +572,7 @@ export const KDSView: React.FC<KDSViewProps> = ({ settings, onExitToKiosk, onOpe
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 items-start">
               <AnimatePresence>
                 {preparingOrders.map((order) => {
-                  const elapsedMs = Math.max(0, nowMs - getOrderTimestampMs(order.createdAt));
+                  const elapsedMs = Math.max(0, nowMs - getOrderTimestampMs(order.paymentConfirmedAt || order.createdAt));
                   const elapsedMinutes = elapsedMs / 60000;
                   const isLate = elapsedMinutes >= 15;
                   const isWarning = elapsedMinutes >= 10 && elapsedMinutes < 15;
