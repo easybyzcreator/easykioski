@@ -1,0 +1,128 @@
+{
+  "entities": {
+    "Setting": {
+      "title": "Setting",
+      "description": "Global visual, kiosk, tax, payment terminal, and thermal printer configuration.",
+      "type": "object",
+      "properties": {
+        "logo": {
+          "type": "string",
+          "description": "Base64 logo or direct image URL"
+        },
+        "primaryColor": {
+          "type": "string",
+          "description": "Hex color for buttons, borders, and highlights"
+        },
+        "brandName": {
+          "type": "string",
+          "description": "Brand display name"
+        },
+        "language": {
+          "type": "string",
+          "description": "Default kiosk language (en, es, pt)"
+        },
+        "currency": {
+          "type": "string",
+          "description": "Default currency code (USD, BRL, EUR)"
+        },
+        "salesTaxRate": {
+          "type": "number",
+          "description": "US Sales Tax percentage (e.g. 7.75)"
+        },
+        "terminalProvider": {
+          "type": "string",
+          "description": "Payment terminal provider (square, zettle, simulation)"
+        },
+        "kioskPrinterName": {
+          "type": "string",
+          "description": "QZ Tray printer name for customer 80mm receipt"
+        },
+        "kitchenPrinterName": {
+          "type": "string",
+          "description": "QZ Tray printer name for kitchen/counter 80mm ticket"
+        }
+      }
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Catalog menu item available for kiosk ordering.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "categoryId": { "type": "string" }
+      }
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Menu section grouping products in order.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "order": { "type": "number" }
+      }
+    },
+    "Side": {
+      "title": "Side",
+      "description": "Add-ons, sides, or swap options.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "price": { "type": "number" }
+      }
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Kiosk paid order sent to KDS and admin history.",
+      "type": "object",
+      "properties": {
+        "orderNumber": { "type": "number" },
+        "customerName": { "type": "string" },
+        "orderType": { "type": "string" },
+        "subtotal": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "tipAmount": { "type": "number" },
+        "total": { "type": "number" },
+        "paymentStatus": { "type": "string" },
+        "kitchenStatus": { "type": "string" }
+      }
+    },
+    "Counter": {
+      "title": "Counter",
+      "description": "Daily sequential order number counter (starts at 101).",
+      "type": "object",
+      "properties": {
+        "currentNumber": { "type": "number" },
+        "dateKey": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/configuracoes/{configId}": {
+      "schema": "Setting",
+      "description": "Global visual, tax, terminal, and printer settings"
+    },
+    "/produtos/{produtoId}": {
+      "schema": "Product",
+      "description": "Menu products and embedded images"
+    },
+    "/categorias/{categoriaId}": {
+      "schema": "Category",
+      "description": "Ordered menu categories"
+    },
+    "/acompanhamentos/{acompanhamentoId}": {
+      "schema": "Side",
+      "description": "Sides, add-ons, and swaps"
+    },
+    "/pedidos/{pedidoId}": {
+      "schema": "Order",
+      "description": "Kiosk and counter orders for KDS and reporting"
+    },
+    "/contadores/{dateKey}": {
+      "schema": "Counter",
+      "description": "Transactional daily sequential order numbers"
+    }
+  }
+}
