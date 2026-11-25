@@ -40,6 +40,110 @@ interface OrdersCalendarProps {
 
 type CalendarViewMode = 'today' | 'grid' | 'agenda' | 'month';
 
+type ModalityKind = 'pickup' | 'takeout' | 'dine_in';
+
+// Solid monochrome icon: Retirada no balcão (Image 2 — paper bag + hand picking up from top)
+const CounterPickupIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    aria-hidden="true"
+  >
+    {/* Hand gripping top of bag */}
+    <path d="M12.2 4.3c.7-.5 1.7-.8 2.7-.8H22v3.2h-2.5c-.7.9-1.6 1.6-2.8 2-.9.3-1.6.9-2.4 1.8-.5.5-1 .7-1.4.4-.5-.3-.6-1.1-.1-1.9l2.6-2.9c.2-.2.1-.5-.2-.5h-4.1c.3-.5.7-.9 1.1-1.3z" />
+    {/* Folded bag top flap */}
+    <path d="M5.6 6.4h8.2l-1.9 2.1H5.3V7c0-.3.1-.6.3-.6z" />
+    {/* Bag main front body */}
+    <path d="M5.1 9.5h6.7c-.2.9.1 1.9.9 2.4.8.5 1.8.3 2.5-.4l.3-.3L14.3 14v7.5H3.8V14l1.3-4.5z" />
+    {/* Bag right side gusset */}
+    <path d="M16.3 10.6l1.7 3.7v6.6l-1.4-1.4v-4.7a.5.5 0 0 0-1 0v4.7l-1.3 1.3v-6.5l1.3-3.7h.7zm-.2 9.7l1.3 1.2h-2.6l1.3-1.2z" />
+  </svg>
+);
+
+// Solid monochrome icon: To-Go / Entrega (Image 3 — square frame with thick diagonal exit arrow top-right)
+const ToGoIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    aria-hidden="true"
+  >
+    {/* Open square container */}
+    <path d="M4.5 3.5h5.2l2.6 2.6H6.1v11.8h11.8v-5.7l2.6 2.6v4.7a1.8 1.8 0 0 1-1.8 1.8H5.3a1.8 1.8 0 0 1-1.8-1.8V5.3a1.8 1.8 0 0 1 1-1.8z" />
+    {/* Thick diagonal arrow pointing out top-right */}
+    <path d="M13.5 3h7.2c.7 0 1.3.6 1.3 1.3v7.2c0 .9-1.1 1.4-1.8.8l-2.3-2.3-5.6 5.6a1.7 1.7 0 0 1-2.4-2.4l5.6-5.6-2.3-2.3c-.6-.7-.1-1.8.8-1.8z" />
+  </svg>
+);
+
+// Solid monochrome icon: Dine-In (Image 4 — circular plate with fork & spoon cutout inside)
+const DineInIcon: React.FC<{ size?: number; className?: string }> = ({ size = 14, className = '' }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    xmlns="http://www.w3.org/2000/svg"
+    className={className}
+    aria-hidden="true"
+  >
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M12 1.5C6.2 1.5 1.5 6.2 1.5 12c0 4.6 3 8.6 7.2 9.9v-7.5c-1.1-.4-1.8-1.4-1.8-2.7V7.4c0-.4.3-.7.7-.7s.7.3.7.7v3h.6v-3c0-.4.3-.7.7-.7s.7.3.7.7v3h.6v-3c0-.4.3-.7.7-.7s.7.3.7.7v4.3c0 1.3-.7 2.3-1.8 2.7v7.8c.5.1 1 .2 1.5.2.9 0 1.8-.1 2.6-.4v-7.4c-1.3-.5-2.2-1.9-2.2-3.7 0-2.3 1.2-4.1 2.7-4.1s2.7 1.8 2.7 4.1c0 1.8-.9 3.2-2.2 3.7v7c3.9-1.5 6.7-5.3 6.7-9.8 0-5.8-4.7-10.5-10.5-10.5zm0 2.7a7.8 7.8 0 0 0-7.8 7.8c0 2.9 1.6 5.4 3.9 6.8v-1.2A6.8 6.8 0 0 1 5.2 12a6.8 6.8 0 1 1 13.6 0c0 2.5-1.3 4.6-3.3 5.8v1.1a7.8 7.8 0 0 0 4.3-6.9A7.8 7.8 0 0 0 12 4.2z"
+    />
+  </svg>
+);
+
+export function getOrderModality(order: Order, isPickupFallback: boolean): {
+  kind: ModalityKind;
+  shortLabel: string;
+  fullLabel: string;
+} {
+  if (order.orderType === 'dine_in') {
+    return {
+      kind: 'dine_in',
+      shortLabel: 'Dine-In',
+      fullLabel: 'Comer no Local (Dine-In)',
+    };
+  }
+  if (order.orderSource === 'mobile_pickup' || order.deliveryType === 'pickup') {
+    return {
+      kind: 'pickup',
+      shortLabel: 'Retirada',
+      fullLabel: 'Retirada no Balcão',
+    };
+  }
+  if (order.orderType === 'takeout' || order.deliveryType === 'delivery' || !isPickupFallback) {
+    return {
+      kind: 'takeout',
+      shortLabel: 'To-Go',
+      fullLabel: 'To-Go / Entrega',
+    };
+  }
+  return {
+    kind: 'pickup',
+    shortLabel: 'Retirada',
+    fullLabel: 'Retirada no Balcão',
+  };
+}
+
+const ModalityIcon: React.FC<{ kind: ModalityKind; size?: number; className?: string }> = ({
+  kind,
+  size = 14,
+  className = 'text-stone-800 shrink-0',
+}) => {
+  if (kind === 'dine_in') return <DineInIcon size={size} className={className} />;
+  if (kind === 'takeout') return <ToGoIcon size={size} className={className} />;
+  return <CounterPickupIcon size={size} className={className} />;
+};
+
 // Helper to parse dates from various formats (MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD, Timestamp)
 export function parseOrderDateTime(order: Order): { date: Date | null; timeStr: string; isPickup: boolean } {
   let targetDate: Date | null = null;
@@ -467,11 +571,27 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
           </div>
         </div>
 
-        {/* Sub-header: Period Title & Order Counter */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-gray-200/50">
-          <h3 className="text-base sm:text-lg font-bold text-gray-900 font-sans">
-            {periodTitle}
-          </h3>
+        {/* Sub-header: Period Title, Modality Legend & Order Counter */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2 border-t border-gray-200/50">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            <h3 className="text-base sm:text-lg font-bold text-gray-900 font-sans">
+              {periodTitle}
+            </h3>
+            <div className="flex flex-wrap items-center gap-3 text-[11px] font-semibold text-stone-600">
+              <span className="inline-flex items-center gap-1.5" title="Retirada no Balcão">
+                <CounterPickupIcon size={13} className="text-stone-800" />
+                <span>Retirada</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5" title="To-Go / Entrega">
+                <ToGoIcon size={13} className="text-stone-800" />
+                <span>To-Go / Entrega</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5" title="Comer no Local (Dine-In)">
+                <DineInIcon size={13} className="text-stone-800" />
+                <span>Dine-In</span>
+              </span>
+            </div>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             {viewMode === 'today' && (
               <>
@@ -537,17 +657,16 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                             <h4 className={`font-serif font-black text-base mt-1.5 truncate ${isDone ? 'line-through text-gray-500' : 'text-gray-900'}`}>
                               {order.isB2B || order.isPJ ? (order.b2bCompanyName || order.customerName) : order.customerName}
                             </h4>
-                            <div className="flex items-center gap-2 text-[11px] font-bold text-gray-500 mt-0.5">
-                              <span className="inline-flex items-center gap-1">
-                                {isPickup ? <Store size={12} className="text-amber-700" /> : <Truck size={12} className="text-amber-800" />}
-                                {order.orderType === 'dine_in'
-                                  ? 'Comer no Local'
-                                  : order.orderType === 'takeout'
-                                  ? 'Para Viagem'
-                                  : isPickup
-                                  ? 'Retirada'
-                                  : 'Entrega'}
-                              </span>
+                            <div className="flex items-center gap-2 text-[11px] font-bold text-stone-600 mt-1">
+                              {(() => {
+                                const modality = getOrderModality(order, isPickup);
+                                return (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <ModalityIcon kind={modality.kind} size={13} className="text-stone-800 shrink-0" />
+                                    <span>{modality.fullLabel}</span>
+                                  </span>
+                                );
+                              })()}
                               {order.tableOrPager && (
                                 <span className="px-2 py-0.5 rounded bg-stone-100 text-stone-800 font-black">
                                   Mesa/Pager: {order.tableOrPager}
@@ -644,106 +763,116 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
           </div>
         )}
 
-        {/* --- VIEW 1: GRADE SEMANAL (IMAGE 1 STYLE) --- */}
+        {/* --- VIEW 1: GRADE SEMANAL (ALIGNED SINGLE-TABLE LAYOUT) --- */}
         {viewMode === 'grid' && (
-          <div className="border border-gray-200/80 rounded-2xl overflow-hidden bg-white shadow-sm">
-            <div className="overflow-x-auto">
-              <div className="min-w-[840px]">
-                {/* Header Row */}
-                <div className="grid grid-cols-8 bg-gray-50 border-b border-gray-200 text-center font-bold text-xs text-gray-700">
-                  <div className="p-3.5 border-r border-gray-200 flex items-center justify-center text-gray-400">
-                    <Clock size={16} />
-                  </div>
-                  {weekDays.map((d, i) => {
-                    const todayActive = isToday(d);
-                    const dayFormatted = `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}`;
-                    return (
-                      <div
-                        key={i}
-                        className={`p-3 border-r border-gray-200 last:border-r-0 flex flex-col items-center justify-center gap-1 ${
-                          todayActive ? 'bg-amber-100/50 font-black' : ''
-                        }`}
-                      >
-                        <span className={`text-[11px] font-bold ${todayActive ? 'text-amber-900' : 'text-gray-500'}`}>
-                          {dayNames[i]}
-                        </span>
-                        {todayActive ? (
-                          <span 
-                            className="px-2 py-0.5 rounded-md text-white font-black text-xs shadow-sm"
-                            style={{ backgroundColor: settings?.primaryColor || '#865d39' }}
-                          >
-                            {dayFormatted}
-                          </span>
-                        ) : (
-                          <span className="text-xs font-bold text-gray-800">
-                            {dayFormatted}
-                          </span>
-                        )}
+          <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
+            <div className="max-h-[580px] overflow-auto">
+              <table className="w-full min-w-[880px] table-fixed border-collapse">
+                <colgroup>
+                  <col className="w-[88px]" />
+                  {weekDays.map((_, i) => (
+                    <col key={i} />
+                  ))}
+                </colgroup>
+                <thead className="sticky top-0 z-20">
+                  <tr className="bg-gray-50 text-center font-bold text-xs text-gray-700">
+                    <th className="p-3 border-b border-r border-gray-200 bg-gray-50 font-bold text-gray-400">
+                      <div className="flex items-center justify-center">
+                        <Clock size={15} />
                       </div>
-                    );
-                  })}
-                </div>
-
-                {/* Grid Hour Rows */}
-                <div className="max-h-[560px] overflow-y-auto divide-y divide-gray-100">
-                  {hoursList.map(hObj => (
-                    <div key={hObj.hour24} className="grid grid-cols-8 min-h-[58px]">
+                    </th>
+                    {weekDays.map((d, i) => {
+                      const todayActive = isToday(d);
+                      const dayFormatted = `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')}`;
+                      return (
+                        <th
+                          key={i}
+                          className={`p-3 border-b border-r border-gray-200 last:border-r-0 align-middle ${
+                            todayActive ? 'bg-amber-50 font-black' : 'bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex flex-col items-center justify-center gap-1">
+                            <span className={`text-[11px] font-bold ${todayActive ? 'text-amber-900' : 'text-gray-500'}`}>
+                              {dayNames[i]}
+                            </span>
+                            {todayActive ? (
+                              <span
+                                className="px-2.5 py-0.5 rounded-md text-white font-black text-xs shadow-sm"
+                                style={{ backgroundColor: settings?.primaryColor || '#865d39' }}
+                              >
+                                {dayFormatted}
+                              </span>
+                            ) : (
+                              <span className="text-xs font-bold text-gray-800">
+                                {dayFormatted}
+                              </span>
+                            )}
+                          </div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {hoursList.map((hObj) => (
+                    <tr key={hObj.hour24}>
                       {/* Hour Label */}
-                      <div className="p-2 border-r border-gray-200 bg-gray-50/70 text-[11px] font-bold text-gray-500 flex items-center justify-center select-none">
+                      <td className="px-2 py-3 border-b border-r border-gray-200 bg-gray-50/80 text-[11px] font-bold text-gray-500 text-center align-middle select-none whitespace-nowrap">
                         {hObj.label}
-                      </div>
+                      </td>
 
                       {/* 7 Days Columns for this hour */}
                       {weekDays.map((d, dayIdx) => {
-                        // Find orders that fall on this day & hour
-                        const cellOrders = periodOrders.filter(p => {
+                        const cellOrders = periodOrders.filter((p) => {
                           if (!p.date) return false;
-                          const matchesDay = (
+                          const matchesDay =
                             p.date.getDate() === d.getDate() &&
                             p.date.getMonth() === d.getMonth() &&
-                            p.date.getFullYear() === d.getFullYear()
-                          );
+                            p.date.getFullYear() === d.getFullYear();
                           if (!matchesDay) return false;
                           const hour = getHourFromTimeString(p.timeStr);
                           return hour === hObj.hour24;
                         });
 
                         return (
-                          <div
+                          <td
                             key={dayIdx}
-                            className={`p-1.5 border-r border-gray-100 last:border-r-0 relative transition-colors ${
-                              isToday(d) ? 'bg-amber-50/30' : 'hover:bg-gray-50/60'
+                            className={`p-1.5 border-b border-r border-gray-200/80 last:border-r-0 align-top h-[62px] transition-colors ${
+                              isToday(d) ? 'bg-amber-50/30' : 'hover:bg-gray-50/50'
                             }`}
                           >
                             <div className="space-y-1.5">
                               {cellOrders.map(({ order, timeStr, isPickup }) => {
-                                const isValidated = order.paymentStatus === 'half' || order.paymentStatus === 'full';
+                                const isValidated = order.paymentStatus === 'half' || order.paymentStatus === 'full' || order.paymentStatus === 'paid';
+                                const modality = getOrderModality(order, isPickup);
                                 return (
                                   <motion.button
                                     key={order.id}
-                                    whileHover={{ scale: 1.02 }}
-                                    whileTap={{ scale: 0.98 }}
+                                    type="button"
+                                    whileHover={{ scale: 1.015 }}
+                                    whileTap={{ scale: 0.985 }}
                                     onClick={() => setSelectedOrder(order)}
-                                    className={`w-full text-left p-2 rounded-xl border shadow-sm transition-all cursor-pointer flex flex-col gap-1 ${
+                                    title={`${modality.fullLabel} • ${timeStr}`}
+                                    className={`w-full text-left p-2 rounded-xl border shadow-xs transition-all cursor-pointer flex flex-col gap-1 ${
                                       isValidated
-                                        ? 'bg-amber-100/60 border-amber-300 text-amber-950 hover:bg-amber-100'
-                                        : 'bg-white border-gray-200 text-gray-900 hover:bg-amber-50/40'
+                                        ? 'bg-amber-50/90 border-amber-300/90 text-stone-900 hover:bg-amber-100/70'
+                                        : 'bg-white border-gray-200 text-stone-900 hover:bg-gray-50'
                                     }`}
                                   >
                                     <div className="flex items-center justify-between gap-1">
-                                      <span className="font-extrabold text-[11px] truncate uppercase">
+                                      <span className="font-extrabold text-[11px] truncate uppercase text-stone-900">
                                         {order.isB2B || order.isPJ ? (order.b2bCompanyName || order.customerName) : order.customerName}
                                       </span>
-                                      <span className="font-black text-[11px] text-amber-900 shrink-0">
+                                      <span className="font-black text-[11px] text-stone-800 shrink-0 tabular-nums">
                                         {formatCurrency(order.total)}
                                       </span>
                                     </div>
-                                    <div className="flex items-center gap-1 text-[10px] font-semibold text-gray-500">
-                                      <span>{isPickup ? '🏪' : '🚚'}</span>
-                                      <span>{timeStr}</span>
+                                    <div className="flex items-center gap-1.5 text-[10px] font-semibold text-stone-600">
+                                      <ModalityIcon kind={modality.kind} size={13} className="text-stone-900 shrink-0" />
+                                      <span className="tabular-nums">{timeStr}</span>
                                       {isValidated && (
-                                        <span 
-                                          className="ml-auto text-[9px] font-black px-1.5 py-0.2 text-white rounded"
+                                        <span
+                                          className="ml-auto text-[9px] font-black px-1.5 py-0.5 text-white rounded"
                                           style={{ backgroundColor: settings?.primaryColor || '#865d39' }}
                                         >
                                           OK
@@ -754,13 +883,13 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                                 );
                               })}
                             </div>
-                          </div>
+                          </td>
                         );
                       })}
-                    </div>
+                    </tr>
                   ))}
-                </div>
-              </div>
+                </tbody>
+              </table>
             </div>
           </div>
         )}
@@ -809,7 +938,8 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                   <div className="space-y-2 flex-grow overflow-y-auto max-h-[300px]">
                     {dayOrders.length > 0 ? (
                       dayOrders.map(({ order, timeStr, isPickup }) => {
-                        const isValidated = order.paymentStatus === 'half' || order.paymentStatus === 'full';
+                        const isValidated = order.paymentStatus === 'half' || order.paymentStatus === 'full' || order.paymentStatus === 'paid';
+                        const modality = getOrderModality(order, isPickup);
                         return (
                           <div
                             key={order.id}
@@ -820,17 +950,17 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                               <span className="font-extrabold text-xs text-gray-900">
                                 {order.customerName}
                               </span>
-                              <span className="font-black text-xs text-amber-900">
+                              <span className="font-black text-xs text-stone-900 tabular-nums">
                                 {formatCurrency(order.total)}
                               </span>
                             </div>
-                            <div className="flex items-center justify-between text-[11px] text-gray-500 font-medium">
-                              <span className="flex items-center gap-1">
-                                {isPickup ? <Store size={13} className="text-amber-700" /> : <Truck size={13} className="text-amber-800" />}
-                                {isPickup ? 'Retirada' : 'Entrega'} • {timeStr}
+                            <div className="flex items-center justify-between text-[11px] text-stone-600 font-medium">
+                              <span className="flex items-center gap-1.5">
+                                <ModalityIcon kind={modality.kind} size={13} className="text-stone-800 shrink-0" />
+                                {modality.shortLabel} • {timeStr}
                               </span>
                               {isValidated && (
-                                <span 
+                                <span
                                   className="text-[9px] font-black px-1.5 py-0.5 rounded text-white"
                                   style={{ backgroundColor: settings?.primaryColor || '#865d39' }}
                                 >
@@ -910,16 +1040,22 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                     </div>
 
                     <div className="space-y-1 overflow-y-auto max-h-[80px]">
-                      {dayOrders.map(({ order, timeStr }) => (
-                        <div
-                          key={order.id}
-                          onClick={() => setSelectedOrder(order)}
-                          className="px-1.5 py-1 rounded bg-amber-50/80 border border-amber-200 text-amber-950 text-[10px] font-bold truncate cursor-pointer hover:bg-amber-100 transition-all flex items-center justify-between gap-1"
-                        >
-                          <span className="truncate">{order.customerName}</span>
-                          <span className="shrink-0 font-black">{timeStr}</span>
-                        </div>
-                      ))}
+                      {dayOrders.map(({ order, timeStr, isPickup }) => {
+                        const modality = getOrderModality(order, isPickup);
+                        return (
+                          <div
+                            key={order.id}
+                            onClick={() => setSelectedOrder(order)}
+                            className="px-1.5 py-1 rounded bg-stone-50 border border-stone-200 text-stone-900 text-[10px] font-bold truncate cursor-pointer hover:bg-stone-100 transition-all flex items-center justify-between gap-1"
+                          >
+                            <span className="inline-flex items-center gap-1 min-w-0">
+                              <ModalityIcon kind={modality.kind} size={11} className="text-stone-800 shrink-0" />
+                              <span className="truncate">{order.customerName}</span>
+                            </span>
+                            <span className="shrink-0 font-black tabular-nums">{timeStr}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -981,21 +1117,26 @@ export const OrdersCalendar: React.FC<OrdersCalendarProps> = ({
                   
                   {/* Delivery Option & Scheduled Time Cards (Top 2 Pills) */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Delivery / Pickup Card */}
-                    <div className="p-4 rounded-2xl bg-gray-50/80 border border-gray-200/70 space-y-1">
-                      <span className="text-[10px] font-extrabold tracking-[0.2em] text-gray-400 uppercase">
-                        OPÇÃO DE ENTREGA
-                      </span>
-                      <div className="flex items-center gap-2 text-lg sm:text-xl font-bold text-gray-900">
-                        <span>{isPickup ? '🏪' : '🛵'}</span>
-                        <span>{isPickup ? 'Retirada' : 'Entrega'}</span>
-                      </div>
-                      {selectedOrder.address && (
-                        <p className="text-xs text-gray-600 font-medium pt-1">
-                          {selectedOrder.address}
-                        </p>
-                      )}
-                    </div>
+                    {/* Delivery / Pickup / Dine-In Card */}
+                    {(() => {
+                      const modality = getOrderModality(selectedOrder, isPickup);
+                      return (
+                        <div className="p-4 rounded-2xl bg-gray-50/80 border border-gray-200/70 space-y-1">
+                          <span className="text-[10px] font-extrabold tracking-[0.2em] text-gray-400 uppercase">
+                            MODALIDADE DO PEDIDO
+                          </span>
+                          <div className="flex items-center gap-2 text-lg sm:text-xl font-bold text-gray-900">
+                            <ModalityIcon kind={modality.kind} size={20} className="text-stone-900 shrink-0" />
+                            <span>{modality.fullLabel}</span>
+                          </div>
+                          {selectedOrder.address && (
+                            <p className="text-xs text-gray-600 font-medium pt-1">
+                              {selectedOrder.address}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Scheduled Time Card */}
                     <div className="p-4 rounded-2xl bg-gray-50/80 border border-gray-200/70 space-y-1">

@@ -839,6 +839,21 @@ export const MobilePickupCheckoutModal: React.FC<MobilePickupCheckoutModalProps>
                                   {item.selectedSize.name}
                                 </p>
                               )}
+                              {item.sandwichOptions?.fillings && item.sandwichOptions.fillings.length > 0 && (
+                                <p className="text-[11px] font-semibold leading-snug" style={{ color: theme.textMuted }}>
+                                  {language === 'es' ? 'Rellenos' : language === 'pt' ? 'Recheios' : 'Fillings'}: {item.sandwichOptions.fillings.join(' + ')}
+                                </p>
+                              )}
+                              {item.mealOptions?.removals && item.mealOptions.removals.length > 0 && (
+                                <p className="text-[11px] font-semibold text-rose-600 leading-snug">
+                                  {language === 'es' ? 'Sin' : language === 'pt' ? 'Sem' : 'No'}: {item.mealOptions.removals.join(', ')}
+                                </p>
+                              )}
+                              {item.mealOptions?.sides && item.mealOptions.sides.length > 0 && (
+                                <p className="text-[11px] leading-snug" style={{ color: theme.textMuted }}>
+                                  + {item.mealOptions.sides.map((s) => s.name).join(', ')}
+                                </p>
+                              )}
                               {item.observation && (
                                 <p className="text-[11px] italic truncate" style={{ color: theme.textMuted }}>
                                   “{item.observation}”

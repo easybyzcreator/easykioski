@@ -74,6 +74,11 @@ export interface Product {
   cakeGalleryId?: string; // Associated image gallery
   isCustomSandwich?: boolean; // Custom sandwich or tapioca with multiple fillings
   customFillings?: string; // Comma separated list of fillings
+  maxFillings?: number; // Max fillings selectable when product has single price (no numbered size variation)
+  fillingsRequired?: boolean; // Whether customer must pick at least 1 filling (default true)
+  customFillings_en?: string;
+  customFillings_es?: string;
+  customFillings_pt?: string;
   nutritionalInfo?: NutritionalInfo;
   minQuantity?: number; // Quantidade mínima para pedido
   is3D?: boolean;
@@ -295,9 +300,18 @@ export interface Settings {
   selectorTitle?: string;
   selectorSubtitle?: string;
   catalog1Title?: string;
+  catalog1Title_en?: string;
+  catalog1Title_es?: string;
+  catalog1Title_pt?: string;
   catalog1Image?: string;
   catalog1Desc?: string;
+  catalog1Desc_en?: string;
+  catalog1Desc_es?: string;
+  catalog1Desc_pt?: string;
   catalog1Slogan?: string;
+  catalog1Slogan_en?: string;
+  catalog1Slogan_es?: string;
+  catalog1Slogan_pt?: string;
   catalog1Active?: boolean;
   catalog2Title?: string;
   catalog2Image?: string;

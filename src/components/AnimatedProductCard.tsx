@@ -11,6 +11,7 @@ interface AnimatedProductCardProps {
   settings: Settings;
   cart: CartItem[];
   currencySymbol: string;
+  requiresSelection?: boolean;
   onSelectProduct: (product: Product) => void;
   onAddToCart: (product: Product, quantity: number) => void;
   onRemoveFromCart: (cartItemId: string) => void;
@@ -22,6 +23,7 @@ export const AnimatedProductCard: React.FC<AnimatedProductCardProps> = ({
   category,
   settings,
   cart,
+  requiresSelection,
   onSelectProduct,
   onAddToCart,
   onRemoveFromCart,
@@ -40,13 +42,18 @@ export const AnimatedProductCard: React.FC<AnimatedProductCardProps> = ({
     .filter((item) => item.productId === product.id)
     .reduce((sum, item) => sum + item.quantity, 0);
 
-  const hasSizes = !!(product.sizes && product.sizes.length > 0);
-  const requiresCustomization = !!(
-    hasSizes ||
-    product.isCustomCake ||
-    product.isMeal ||
-    product.isCustomSandwich
-  );
+  const hasSizes = !!(product.hasSizes !== false && product.sizes && product.sizes.length > 0);
+  const requiresCustomization =
+    typeof requiresSelection === 'boolean'
+      ? requiresSelection
+      : !!(
+          hasSizes ||
+          product.isCustomCake ||
+          (product.isCustomSandwich && Boolean(product.customFillings?.trim())) ||
+          (product.isMeal &&
+            (Boolean(product.ingredients?.trim()) ||
+              Boolean(product.allowedSides && product.allowedSides.length > 0)))
+        );
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!cardRef.current) return;

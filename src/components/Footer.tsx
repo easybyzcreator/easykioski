@@ -92,7 +92,7 @@ export default function Footer({
           className="text-[10px] tracking-[0.2em] font-sans font-bold uppercase group-hover:opacity-80 transition-opacity"
           style={{ color: primaryColor }}
         >
-          DESENVOLVIDO POR
+          DEVELOPED BY
         </p>
         <motion.div
           role="img"

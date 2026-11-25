@@ -109,7 +109,7 @@ export const extractItemModifications = (item: OrderItem): string[] => {
   }
 
   if (item.sandwichOptions?.fillings && item.sandwichOptions.fillings.length > 0) {
-    mods.push(`OPTION: ${item.sandwichOptions.fillings.join(' + ')}`);
+    mods.push(`FILLINGS: ${item.sandwichOptions.fillings.join(' + ')}`);
   }
 
   if (item.observation && item.observation.trim()) {

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { db } from '../firebase';
 import { collection, onSnapshot, addDoc, serverTimestamp, doc, query, orderBy } from 'firebase/firestore';
 import { Product, Order, Settings, Category, CartItem, Side, ProductSize, ImageGallery } from '../types';
-import { Plus, Minus, ShoppingBag, X, MessageCircle, MessageSquare, Check, Calendar, Building2, User, Phone, MapPin, RefreshCw, ChevronDown, Truck, Navigation, Loader2, Lock, ArrowLeft, Info, ArrowRight, Layers, Sparkles } from 'lucide-react';
+import { Plus, Minus, ShoppingBag, X, MessageCircle, MessageSquare, Check, Calendar, Building2, User, Phone, MapPin, RefreshCw, ChevronDown, Truck, Navigation, Loader2, Lock, ArrowLeft, Info, ArrowRight, Layers, Sparkles, Menu as MenuIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { toast } from 'sonner';
@@ -19,6 +19,7 @@ import {
   getLocalizedCategoryTitle,
   getLocalizedProduct,
   getLocalizedSideName,
+  productRequiresCustomerSelection,
 } from '../services/catalogTranslationService';
 import { getBrandTheme } from '../utils/brandTheme';
 
@@ -394,6 +395,28 @@ export default function Menu({
   const [selectedTopping, setSelectedTopping] = useState<string>('');
   const [selectedToppings, setSelectedToppings] = useState<string[]>([]); // dummy if needed, but not used now
   const [selectedTopper, setSelectedTopper] = useState<string>('');
+  const [isMobileCategoryMenuOpen, setIsMobileCategoryMenuOpen] = useState(false);
+  const mobileCatMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isMobileCategoryMenuOpen) return;
+    const handleOutsideClick = (event: MouseEvent | TouchEvent) => {
+      if (mobileCatMenuRef.current && !mobileCatMenuRef.current.contains(event.target as Node)) {
+        setIsMobileCategoryMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsMobileCategoryMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMobileCategoryMenuOpen]);
   const [b2bName, setB2bName] = useState(() => {
     try {
       const saved = localStorage.getItem('b2b_profile_save');
@@ -757,79 +780,84 @@ export default function Menu({
     }
   }, []);
 
+  const getMaxFillingsForProduct = (product: Product, size: ProductSize | null): number => {
+    if (size?.name) {
+      const match = size.name.match(/(\d+)/);
+      if (match) {
+        const parsed = parseInt(match[1], 10);
+        if (parsed > 0) return parsed;
+      }
+    }
+    return Math.max(1, product.maxFillings || 1);
+  };
+
+  const openProductModal = (product: Product) => {
+    const minQ = product.minQuantity && product.minQuantity > 1 ? product.minQuantity : 1;
+    setSelectedProductForDetails(product);
+    setMealSelections({ removals: [], sides: [] });
+    setSideQuantities({});
+    setSelectedSandwichFillings([]);
+    setSandwichFillingQuantities({});
+    setCustomItemQuantity(minQ);
+
+    if (product.hasSizes !== false && product.sizes && product.sizes.length > 0) {
+      setSelectedSize(product.sizes[0]);
+    } else {
+      setSelectedSize(null);
+    }
+
+    if (product.isCustomCake) {
+      setSelectedCakeSize('');
+      setSelectedDough('');
+      setSelectedFillings([]);
+      setSelectedTopping('');
+      setSelectedTopper('');
+      setSelectedStyleNumber(null);
+    }
+  };
+
   const addToCart = (product: Product, customQty: number = 1) => {
     const minQ = product.minQuantity && product.minQuantity > 1 ? product.minQuantity : 1;
     const effectiveQty = Math.max(customQty, minQ);
     if (customQty < minQ) {
-      toast.info(settings.language === 'en'
-        ? `The minimum order quantity for "${product.title}" is ${minQ} units.`
-        : `A quantidade mínima para "${product.title}" é de ${minQ} unidades.`);
+      toast.info(
+        activeLanguage === 'es'
+          ? `La cantidad mínima para "${product.title}" es de ${minQ} unidades.`
+          : activeLanguage === 'pt'
+            ? `A quantidade mínima para "${product.title}" é de ${minQ} unidades.`
+            : `The minimum order quantity for "${product.title}" is ${minQ} units.`
+      );
     }
 
-    const hasSizesOpt = !!(product.sizes && product.sizes.length > 0);
-    const hasExclusionsOpt = !!(product.isMeal && product.ingredients && product.ingredients.split(',').map(i => i.trim()).filter(Boolean).length > 0);
-    const hasSidesOpt = !!(product.isMeal && product.allowedSides && product.allowedSides.filter(id => sides.some(s => s.id === id)).length > 0);
-    const isCustomCakeOpt = !!product.isCustomCake;
-    const isCustomSandwichOpt = !!product.isCustomSandwich;
-    
-    // If it requires complex customization (exclusions, sides, cake, or sandwich selection)
-    const requiresComplexCustomization = hasExclusionsOpt || hasSidesOpt || isCustomCakeOpt || isCustomSandwichOpt;
+    const requiresSelection = productRequiresCustomerSelection(product, sides);
 
-    // If we have selectedSize from details modal and NO complex customization is needed, add directly!
-    if (hasSizesOpt && selectedSize && !requiresComplexCustomization) {
-      setCart(prev => {
-        const existing = prev.find(item => item.productId === product.id && !item.mealOptions && item.selectedSize?.id === selectedSize.id);
-        if (existing) {
-          return prev.map(item => item === existing ? { ...item, quantity: item.quantity + effectiveQty } : item);
-        }
-        return [...prev, { id: Math.random().toString(36).substr(2, 9), productId: product.id, quantity: effectiveQty, selectedSize: selectedSize }];
-      });
-      return;
-    }
-
-    const requiresCustomization = hasSizesOpt || hasExclusionsOpt || hasSidesOpt || isCustomCakeOpt || isCustomSandwichOpt;
-
-    if (requiresCustomization) {
-      setSelectedProductForCustom(product);
-      setMealSelections({
-        removals: [],
-        sides: []
-      });
-      setSideQuantities({});
-      
-      // Preserve existing selectedSize if valid for this product, otherwise set first option
-      if (product.sizes && product.sizes.length > 0) {
-        const isAlreadySelectedSizeValid = selectedSize && product.sizes.some(s => s.id === selectedSize.id);
-        if (!isAlreadySelectedSizeValid) {
-          setSelectedSize(product.sizes[0]);
-        }
-      } else {
-        setSelectedSize(null);
-      }
-      
-      if (product.isCustomCake) {
-        setSelectedCakeSize('');
-        setSelectedDough('');
-        setSelectedFillings([]);
-        setSelectedTopping('');
-        setSelectedTopper('');
-        setSelectedStyleNumber(null);
-      }
-
-      if (product.isCustomSandwich) {
-        setSelectedSandwichFillings([]);
-      }
-      setIsCustomModalOpen(true);
+    if (requiresSelection) {
+      openProductModal(product);
       return;
     }
 
     setCart(prev => {
-      const existing = prev.find(item => item.productId === product.id && !item.mealOptions && !item.selectedSize);
+      const existing = prev.find(
+        item =>
+          item.productId === product.id &&
+          !item.mealOptions &&
+          !item.selectedSize &&
+          !item.sandwichOptions &&
+          !item.cakeOptions
+      );
       if (existing) {
         return prev.map(item => item === existing ? { ...item, quantity: item.quantity + effectiveQty } : item);
       }
       return [...prev, { id: Math.random().toString(36).substr(2, 9), productId: product.id, quantity: effectiveQty }];
     });
+
+    toast.success(
+      activeLanguage === 'es'
+        ? `¡${product.title} agregado!`
+        : activeLanguage === 'pt'
+          ? `${product.title} adicionado à sacola!`
+          : `${product.title} added to bag!`
+    );
   };
 
   const incrementSizeQty = (product: Product, size: ProductSize) => {
@@ -1017,53 +1045,22 @@ export default function Menu({
   };
 
   const addDetailedProductToCart = (product: Product) => {
-    if (product.isCustomSandwich) {
-      const activeFillings = (Object.entries(sandwichFillingQuantities) as [string, number][])
-        .filter(([_, qty]) => qty > 0)
-        .map(([name, qty]) => ({ name, qty }));
+    const fillingsAvailable = product.isCustomSandwich
+      ? (product.customFillings || '')
+          .split(',')
+          .map(f => f.trim())
+          .filter(Boolean)
+      : [];
+    const hasFillingsOpt = fillingsAvailable.length > 0;
 
-      if (activeFillings.length === 0) {
-        toast.error(settings.language === 'en' ? 'Choose at least 1 option!' : 'Escolha pelo menos 1 opção!');
-        return;
-      }
-
-      setCart(prev => {
-        let currentCart = [...prev];
-
-        for (const { name, qty } of activeFillings) {
-          const newSandwichOptions = {
-            fillings: [name]
-          };
-
-          const existing = currentCart.find(item =>
-            item.productId === product.id &&
-            ((!item.selectedSize && !selectedSize) || (item.selectedSize?.id === selectedSize?.id)) &&
-            item.sandwichOptions &&
-            JSON.stringify(item.sandwichOptions.fillings) === JSON.stringify(newSandwichOptions.fillings)
-          );
-
-          if (existing) {
-            currentCart = currentCart.map(item =>
-              item.id === existing.id ? { ...item, quantity: item.quantity + qty } : item
-            );
-          } else {
-            currentCart.push({
-              id: Math.random().toString(36).substr(2, 9),
-              productId: product.id,
-              quantity: qty,
-              sandwichOptions: newSandwichOptions,
-              selectedSize: selectedSize || undefined
-            });
-          }
-        }
-
-        return currentCart;
-      });
-
-      setSelectedProductForDetails(null);
-      setSelectedSize(null);
-      setSelectedSandwichFillings([]);
-      toast.success(settings.language === 'en' ? 'Successfully added to request list!' : 'Adicionado com sucesso ao pedido!');
+    if (hasFillingsOpt && product.fillingsRequired !== false && selectedSandwichFillings.length === 0) {
+      toast.error(
+        activeLanguage === 'es'
+          ? '¡Elige al menos 1 relleno!'
+          : activeLanguage === 'pt'
+            ? 'Escolha pelo menos 1 recheio!'
+            : 'Please select at least 1 filling!'
+      );
       return;
     }
 
@@ -1111,10 +1108,16 @@ export default function Menu({
       });
 
       setSelectedProductForDetails(null);
-      toast.success(settings.language === 'en' ? 'Successfully added to request list!' : 'Adicionado com sucesso ao pedido!');
+      toast.success(
+        activeLanguage === 'es'
+          ? '¡Agregado al pedido!'
+          : activeLanguage === 'pt'
+            ? 'Adicionado com sucesso ao pedido!'
+            : 'Added to your order!'
+      );
       return;
     }
-    
+
     const selectedSides: Side[] = [];
     Object.entries(sideQuantities).forEach(([id, qty]) => {
       const side = localizedSides.find(s => s.id === id);
@@ -1125,40 +1128,78 @@ export default function Menu({
       }
     });
 
-    const newMealOptions = product.isMeal ? {
-      removals: mealSelections.removals,
-      sides: selectedSides
-    } : undefined;
+    const hasMealSelections = mealSelections.removals.length > 0 || selectedSides.length > 0;
+    const newMealOptions =
+      product.isMeal && hasMealSelections
+        ? {
+            removals: mealSelections.removals,
+            sides: selectedSides,
+          }
+        : undefined;
+
+    const newSandwichOptions =
+      hasFillingsOpt && selectedSandwichFillings.length > 0
+        ? {
+            fillings: [...selectedSandwichFillings],
+          }
+        : undefined;
+
+    const effectiveSize =
+      product.hasSizes !== false && product.sizes && product.sizes.length > 0
+        ? selectedSize || product.sizes[0]
+        : undefined;
 
     setCart(prev => {
-      const existing = prev.find(item => 
-        item.productId === product.id && 
-        ((!item.selectedSize && !selectedSize) || (item.selectedSize?.id === selectedSize?.id)) &&
-        (!newMealOptions || (
-          JSON.stringify([...(item.mealOptions?.removals || [])].sort()) === JSON.stringify([...newMealOptions.removals].sort()) &&
-          JSON.stringify([...(item.mealOptions?.sides || [])].map(s => s.id).sort()) === JSON.stringify([...newMealOptions.sides].map(s => s.id).sort())
-        ))
-      );
+      const existing = prev.find(item => {
+        if (item.productId !== product.id) return false;
+        const sameSize = (!item.selectedSize && !effectiveSize) || item.selectedSize?.id === effectiveSize?.id;
+        if (!sameSize) return false;
+
+        const sameFillings =
+          JSON.stringify([...(item.sandwichOptions?.fillings || [])].sort()) ===
+          JSON.stringify([...(newSandwichOptions?.fillings || [])].sort());
+        if (!sameFillings) return false;
+
+        const sameRemovals =
+          JSON.stringify([...(item.mealOptions?.removals || [])].sort()) ===
+          JSON.stringify([...(newMealOptions?.removals || [])].sort());
+        const sameSides =
+          JSON.stringify([...(item.mealOptions?.sides || [])].map(s => s.id).sort()) ===
+          JSON.stringify([...(newMealOptions?.sides || [])].map(s => s.id).sort());
+        return sameRemovals && sameSides;
+      });
 
       if (existing) {
-        return prev.map(item => item.id === existing.id ? { ...item, quantity: item.quantity + customItemQuantity } : item);
+        return prev.map(item =>
+          item.id === existing.id ? { ...item, quantity: item.quantity + customItemQuantity } : item
+        );
       }
 
       return [
-        ...prev, 
-        { 
-          id: Math.random().toString(36).substr(2, 9), 
-          productId: product.id, 
+        ...prev,
+        {
+          id: Math.random().toString(36).substr(2, 9),
+          productId: product.id,
           quantity: customItemQuantity,
           mealOptions: newMealOptions,
-          selectedSize: selectedSize || undefined
-        }
+          sandwichOptions: newSandwichOptions,
+          selectedSize: effectiveSize,
+        },
       ];
     });
 
     setSelectedProductForDetails(null);
     setSelectedSize(null);
-    toast.success(settings.language === 'en' ? 'Successfully added to request list!' : 'Adicionado com sucesso ao pedido!');
+    setSelectedSandwichFillings([]);
+    setMealSelections({ removals: [], sides: [] });
+    setSideQuantities({});
+    toast.success(
+      activeLanguage === 'es'
+        ? '¡Agregado al pedido!'
+        : activeLanguage === 'pt'
+          ? 'Adicionado com sucesso ao pedido!'
+          : 'Added to your order!'
+    );
   };
 
   const removeFromCart = (cartItemId: string) => {
@@ -1565,7 +1606,7 @@ export default function Menu({
       }
       if (item.sandwichOptions) {
         const parts = [];
-        if (item.sandwichOptions.fillings && item.sandwichOptions.fillings.length > 0) parts.push(`${settings.language === 'en' ? 'State' : 'Estado'}: ${item.sandwichOptions.fillings.join(' + ')}`);
+        if (item.sandwichOptions.fillings && item.sandwichOptions.fillings.length > 0) parts.push(`${activeLanguage === 'es' ? 'Rellenos' : activeLanguage === 'pt' ? 'Recheios' : 'Fillings'}: ${item.sandwichOptions.fillings.join(' + ')}`);
         titleStr += ` [${parts.join(', ')}]`;
       }
       return {
@@ -1946,13 +1987,25 @@ export default function Menu({
                 </div>
                 <div className="mt-2.5 space-y-1 w-full flex-grow flex flex-col justify-start">
                   <h3 className="text-xs sm:text-sm font-serif font-black uppercase tracking-wide transition-colors leading-tight" style={{ color: theme.text }}>
-                    {settings.catalog1Title || 'Acarajé & Pratos'}
+                    {(activeLanguage === 'es'
+                      ? settings.catalog1Title_es
+                      : activeLanguage === 'pt'
+                        ? settings.catalog1Title_pt
+                        : settings.catalog1Title_en)?.trim() || settings.catalog1Title || 'Acarajé & Pratos'}
                   </h3>
-                  {settings.catalog1Desc && (
-                    <p className="text-[10px] font-semibold leading-tight px-1 block line-clamp-2" style={{ color: theme.textMuted }}>
-                      {settings.catalog1Desc}
-                    </p>
-                  )}
+                  {(() => {
+                    const localizedCatalog1Desc =
+                      (activeLanguage === 'es'
+                        ? settings.catalog1Desc_es
+                        : activeLanguage === 'pt'
+                          ? settings.catalog1Desc_pt
+                          : settings.catalog1Desc_en)?.trim() || settings.catalog1Desc;
+                    return localizedCatalog1Desc ? (
+                      <p className="text-[10px] font-semibold leading-tight px-1 block line-clamp-2" style={{ color: theme.textMuted }}>
+                        {localizedCatalog1Desc}
+                      </p>
+                    ) : null;
+                  })()}
                 </div>
               </motion.div>
             )}
@@ -2095,6 +2148,73 @@ export default function Menu({
   return (
     <div className="flex-grow flex flex-col items-center p-4 pb-32 relative">
       {/* Discreet EN | ES | PT Switcher */}
+      {/* Discreet Top-Left Category Menu — ONLY in Mobile Pickup Mode (/#/order) */}
+      {isMobilePickup && (() => {
+        const mobileActiveCategories = filteredCategories.filter((cat) =>
+          localizedProducts.some((p) => p.categoryId === cat.id && p.isActive !== false)
+        );
+        if (mobileActiveCategories.length === 0) return null;
+        const menuLabel =
+          activeLanguage === 'es' ? 'Menú' : activeLanguage === 'pt' ? 'Cardápio' : 'Menu';
+        return (
+          <div ref={mobileCatMenuRef} className="fixed top-4 left-4 z-40">
+            <button
+              type="button"
+              onClick={() => setIsMobileCategoryMenuOpen((prev) => !prev)}
+              className="min-h-[40px] px-3.5 py-1.5 rounded-full backdrop-blur-md border shadow-sm flex items-center gap-2 text-[11px] font-bold tracking-wide transition-all cursor-pointer active:scale-95"
+              style={{
+                backgroundColor: theme.pillBg,
+                borderColor: theme.primaryBorder,
+                color: theme.text,
+              }}
+              aria-expanded={isMobileCategoryMenuOpen}
+              aria-label={menuLabel}
+            >
+              <MenuIcon size={15} strokeWidth={2.2} style={{ color: theme.text }} />
+              <span>{menuLabel}</span>
+              <ChevronDown
+                size={13}
+                className={cn('transition-transform duration-200 opacity-70', isMobileCategoryMenuOpen && 'rotate-180')}
+              />
+            </button>
+
+            <AnimatePresence>
+              {isMobileCategoryMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                  transition={{ duration: 0.16 }}
+                  className="mt-2 w-56 max-h-[65vh] overflow-y-auto rounded-2xl border backdrop-blur-xl shadow-lg py-1.5"
+                  style={{
+                    backgroundColor: theme.modalBg,
+                    borderColor: theme.primaryBorder,
+                  }}
+                >
+                  <div className="flex flex-col divide-y" style={{ borderColor: theme.primaryBorder }}>
+                    {mobileActiveCategories.map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => {
+                          setIsMobileCategoryMenuOpen(false);
+                          const el = document.getElementById(`menu-cat-${cat.id}`);
+                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-xs font-semibold transition-colors hover:bg-black/5 active:bg-black/10 cursor-pointer flex items-center justify-between gap-2"
+                        style={{ color: theme.text, borderColor: theme.primaryBorder }}
+                      >
+                        <span className="truncate">{cat.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })()}
+
       <div className="fixed top-4 right-4 z-40 flex flex-col items-end gap-2">
         <div
           className="flex items-center gap-1 rounded-full backdrop-blur-md p-1 border shadow-sm"
@@ -2125,7 +2245,7 @@ export default function Menu({
 
       {/* Discreet PWA Install Banner in Mobile Pickup Mode */}
       {isMobilePickup && (
-        <div className="w-full mt-12 sm:mt-4">
+        <div className="w-full mt-14">
           <PwaInstallBanner settings={settings} language={activeLanguage} />
         </div>
       )}
@@ -2161,12 +2281,18 @@ export default function Menu({
       </h1>
 
       {(() => {
-        const localizedSlogan =
+        const localizedCatalog1Slogan =
           activeLanguage === 'es'
-            ? settings.slogan_es
+            ? settings.catalog1Slogan_es || settings.slogan_es
             : activeLanguage === 'pt'
-              ? settings.slogan_pt
-              : settings.slogan_en;
+              ? settings.catalog1Slogan_pt || settings.slogan_pt
+              : settings.catalog1Slogan_en || settings.slogan_en;
+        const localizedCatalog1Desc =
+          activeLanguage === 'es'
+            ? settings.catalog1Desc_es
+            : activeLanguage === 'pt'
+              ? settings.catalog1Desc_pt
+              : settings.catalog1Desc_en;
         const rawCatalog1Slogan = (settings.catalog1Slogan || settings.catalog1Desc || settings.slogan || '').trim();
         const isDefaultCraftedSlogan =
           /Crafted fresh to order with artisanal ingredients|Artisanal flavors crafted fresh to order|O sabor que você merece/i.test(rawCatalog1Slogan);
@@ -2177,15 +2303,20 @@ export default function Menu({
               ? 'Preparado fresco na hora com ingredientes artesanais'
               : 'Crafted fresh to order with artisanal ingredients';
 
+        const resolvedCatalog1Text =
+          localizedCatalog1Slogan?.trim() ||
+          localizedCatalog1Desc?.trim() ||
+          (isDefaultCraftedSlogan ? fallbackTranslatedSlogan : rawCatalog1Slogan);
+
         const text = selectedCatalog === 'catalog1'
-          ? (localizedSlogan?.trim() || (isDefaultCraftedSlogan ? fallbackTranslatedSlogan : rawCatalog1Slogan))
+          ? resolvedCatalog1Text
           : selectedCatalog === 'catalog2'
-            ? (settings.catalog2Slogan || settings.catalog2Desc || localizedSlogan || settings.slogan || '')
+            ? (settings.catalog2Slogan || settings.catalog2Desc || localizedCatalog1Slogan || settings.slogan || '')
             : selectedCatalog === 'catalog3'
-              ? (settings.catalog3Slogan || settings.catalog3Desc || localizedSlogan || settings.slogan || '')
+              ? (settings.catalog3Slogan || settings.catalog3Desc || localizedCatalog1Slogan || settings.slogan || '')
               : selectedCatalog === 'catalog4'
-                ? (settings.catalog4Slogan || settings.catalog4Desc || localizedSlogan || settings.slogan || '')
-                : (localizedSlogan?.trim() || (isDefaultCraftedSlogan ? fallbackTranslatedSlogan : (settings.slogan || fallbackTranslatedSlogan)));
+                ? (settings.catalog4Slogan || settings.catalog4Desc || localizedCatalog1Slogan || settings.slogan || '')
+                : (resolvedCatalog1Text || fallbackTranslatedSlogan);
 
         if (selectedCatalog) {
           const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
@@ -2297,14 +2428,8 @@ export default function Menu({
                       settings={settings}
                       cart={cart}
                       currencySymbol={currencySymbol}
-                      onSelectProduct={(p) => {
-                        setSelectedProductForDetails(p);
-                        if (p.sizes && p.sizes.length > 0) {
-                          setSelectedSize(p.sizes[0]);
-                        } else {
-                          setSelectedSize(null);
-                        }
-                      }}
+                      requiresSelection={productRequiresCustomerSelection(product, sides)}
+                      onSelectProduct={(p) => openProductModal(p)}
                       onAddToCart={(p, qty) => addToCart(p, qty)}
                       onRemoveFromCart={(itemId) => removeFromCart(itemId)}
                       getContrastText={getContrastText}
@@ -2487,8 +2612,8 @@ export default function Menu({
                   </p>
                 )}
 
-                {/* Alérgicos / Ingredientes */}
-                {(liveDetailProduct || selectedProductForDetails).ingredients && (
+                {/* Alérgicos / Ingredientes (apenas leitura quando não usado como exclusões interativas) */}
+                {!selectedProductForDetails.isMeal && (liveDetailProduct || selectedProductForDetails).ingredients && (
                   <p
                     className="text-[11px] font-bold p-3 rounded-xl border leading-relaxed"
                     style={{
@@ -2508,10 +2633,8 @@ export default function Menu({
                   </p>
                 )}
 
-
-
                 {/* Opções de Tamanho / Quantidade */}
-                {selectedProductForDetails.sizes && selectedProductForDetails.sizes.length > 0 && (
+                {selectedProductForDetails.hasSizes !== false && selectedProductForDetails.sizes && selectedProductForDetails.sizes.length > 0 && (
                   <div className="space-y-3 pt-2">
                     <div className="flex items-center gap-2">
                       <Layers size={16} style={{ color: theme.primary }} />
@@ -2532,7 +2655,8 @@ export default function Menu({
                             onClick={() => {
                               setSelectedSize(s);
                               if (selectedProductForDetails.isCustomSandwich) {
-                                setSelectedSandwichFillings([]);
+                                const newMax = getMaxFillingsForProduct(selectedProductForDetails, s);
+                                setSelectedSandwichFillings(prev => prev.slice(0, newMax));
                               }
                             }}
                             className="p-4 rounded-2xl flex justify-between items-center cursor-pointer transition-all"
@@ -2562,7 +2686,7 @@ export default function Menu({
                 )}
 
                 {/* Preço se não tiver tamanhos múltiplos */}
-                {(!selectedProductForDetails.sizes || selectedProductForDetails.sizes.length === 0) && (
+                {(!(selectedProductForDetails.hasSizes !== false && selectedProductForDetails.sizes && selectedProductForDetails.sizes.length > 0)) && (
                   <div
                     className="p-3.5 rounded-2xl border flex items-baseline gap-2"
                     style={{
@@ -2849,16 +2973,23 @@ export default function Menu({
 
                   {/* Customizable Meal Options in Details Modal */}
                   {selectedProductForDetails.isMeal && (() => {
-                    const hasExclusions = !!(selectedProductForDetails.ingredients && selectedProductForDetails.ingredients.split(',').map(i => i.trim()).filter(Boolean).length > 0);
-                    const hasSides = !!(selectedProductForDetails.allowedSides && selectedProductForDetails.allowedSides.filter(id => sides.some(s => s.id === id)).length > 0);
+                    const activeProd = liveDetailProduct || selectedProductForDetails;
+                    const hasExclusions = !!(activeProd.ingredients && activeProd.ingredients.split(',').map(i => i.trim()).filter(Boolean).length > 0);
+                    const hasSides = !!(activeProd.allowedSides && activeProd.allowedSides.filter(id => sides.some(s => s.id === id)).length > 0);
                     if (!hasExclusions && !hasSides) return null;
                     return (
                       <div className="border-t border-gray-200/30 pt-6 space-y-6">
-                        <h4 className="text-sm font-black uppercase tracking-wider" style={{ color: settings.textColor || '#000000', opacity: 0.7 }}>Personalizar Refeição</h4>
+                        <h4 className="text-sm font-black uppercase tracking-wider" style={{ color: settings.textColor || '#000000', opacity: 0.75 }}>
+                          {activeLanguage === 'es'
+                            ? 'Personalizar Plato'
+                            : activeLanguage === 'pt'
+                              ? 'Personalizar Prato'
+                              : 'Meal Customization'}
+                        </h4>
                         
                         {/* Exclusions */}
-                        {selectedProductForDetails.ingredients && (() => {
-                          const ingredientsList = selectedProductForDetails.ingredients
+                        {activeProd.ingredients && (() => {
+                          const ingredientsList = activeProd.ingredients
                             .split(',')
                             .map(i => i.trim())
                             .filter(Boolean);
@@ -2904,9 +3035,9 @@ export default function Menu({
                         })()}
 
                         {/* Sides and Swaps */}
-                        {selectedProductForDetails.allowedSides && selectedProductForDetails.allowedSides.length > 0 && (
+                        {activeProd.allowedSides && activeProd.allowedSides.length > 0 && (
                           (() => {
-                            const allowedSidesList = (selectedProductForDetails.allowedSides || [])
+                            const allowedSidesList = (activeProd.allowedSides || [])
                               .map(id => localizedSides.find(s => s.id === id))
                               .filter(Boolean) as Side[];
                             
@@ -2914,6 +3045,9 @@ export default function Menu({
                             const swapSides = allowedSidesList.filter(s => s.type === 'swap');
 
                             if (regularSides.length === 0 && swapSides.length === 0) return null;
+
+                            const freeLabel =
+                              activeLanguage === 'es' ? 'Gratis' : activeLanguage === 'pt' ? 'Grátis' : 'Free';
 
                             const renderSideItem = (side: Side) => {
                               const qty = sideQuantities[side.id] || 0;
@@ -2928,7 +3062,7 @@ export default function Menu({
                                   <div className="flex flex-col min-w-0 pr-2">
                                     <span className="font-bold truncate" style={{ color: settings.textColor || '#000000' }}>{side.name}</span>
                                     <span className="text-[10px] opacity-60 font-extrabold mt-0.5" style={{ color: settings.textColor || '#000000' }}>
-                                      {side.price > 0 ? `+ ${currencySymbol}${side.price.toFixed(2)}` : 'Grátis'}
+                                      {side.price > 0 ? `+ ${currencySymbol}${side.price.toFixed(2)}` : freeLabel}
                                     </span>
                                   </div>
                                   <div className="flex items-center gap-2.5">
@@ -2967,7 +3101,11 @@ export default function Menu({
                                 {swapSides.length > 0 && (
                                   <div className="space-y-2">
                                     <p className="text-xs font-bold" style={{ color: theme.primary }}>
-                                      Opções de Troca
+                                      {activeLanguage === 'es'
+                                        ? 'Opciones de Cambio (Swap)'
+                                        : activeLanguage === 'pt'
+                                          ? 'Opções de Troca (Swap)'
+                                          : 'Swap Options (Swap)'}
                                     </p>
                                     <div className="grid grid-cols-1 gap-1.5">
                                       {swapSides.map(renderSideItem)}
@@ -2982,77 +3120,84 @@ export default function Menu({
                     );
                   })()}
 
-                  {/* Customizable Sandwich Options in Details Modal */}
-                  {selectedProductForDetails.isCustomSandwich && (
-                    <div className="border-t border-gray-200/30 pt-6 space-y-6">
-                      <h4 className="text-sm font-black uppercase tracking-wider" style={{ color: settings.textColor || '#000000', opacity: 0.7 }}>
-                        {settings.language === 'en' ? 'Marmita State Option (Frozen / Natural / Fresh)' : 'Opção de Estado da Marmita (Congelada / Natural / Fresca)'}
-                      </h4>
-                      
-                      {/* Fillings Selection for Custom Sandwich */}
-                      {selectedProductForDetails.customFillings && (() => {
-                        const fillingsList = selectedProductForDetails.customFillings
-                          .split(',')
-                          .map(f => f.trim())
-                          .filter(Boolean);
-                        if (fillingsList.length === 0) return null;
-                        return (
-                          <div className="space-y-4">
-                            <p className="text-xs font-bold" style={{ color: settings.textColor || '#000000', opacity: 0.7 }}>
-                              {settings.language === 'en' ? 'Select Quantities per Option' : 'Selecione as Quantidades por Opção'}
-                            </p>
-                            <div className="grid grid-cols-1 gap-2.5">
-                              {fillingsList.map((fillingOpt, idx) => {
-                                const qty = sandwichFillingQuantities[fillingOpt] || 0;
-                                return (
-                                  <div
-                                    key={idx}
-                                    className="p-3.5 rounded-2xl border transition-all flex items-center justify-between font-bold text-xs bg-white/70 border-white/25 shadow-sm"
-                                  >
-                                    <span className="text-sm font-bold" style={{ color: settings.textColor || '#000000' }}>{fillingOpt}</span>
-                                    
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        type="button"
-                                        disabled={qty === 0}
-                                        onClick={() => {
-                                          setSandwichFillingQuantities(prev => ({
-                                            ...prev,
-                                            [fillingOpt]: Math.max(0, qty - 1)
-                                          }));
-                                        }}
-                                        className={cn(
-                                          "w-7 h-7 rounded-full bg-white flex items-center justify-center border border-gray-200 shadow-xs cursor-pointer active:scale-95 transition-all text-xs font-bold",
-                                          qty === 0 ? "opacity-30 cursor-not-allowed" : "hover:bg-gray-50"
-                                        )}
-                                        style={{ color: settings.textColor || '#000000' }}
-                                      >
-                                        <Minus size={12} />
-                                      </button>
-                                      <span className="text-xs font-black min-w-[16px] text-center" style={{ color: settings.textColor || '#000000' }}>{qty}</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setSandwichFillingQuantities(prev => ({
-                                            ...prev,
-                                            [fillingOpt]: qty + 1
-                                          }));
-                                        }}
-                                        className="w-7 h-7 rounded-full flex items-center justify-center text-white shadow-xs cursor-pointer active:scale-95 transition-all text-xs font-bold"
-                                        style={{ backgroundColor: settings.primaryColor || '#865d39' }}
-                                      >
-                                        <Plus size={12} />
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  )}
+                  {/* Customizable Fillings Selection (Tapiocas / Sandwiches / Bowls) */}
+                  {selectedProductForDetails.isCustomSandwich && (() => {
+                    const activeProd = liveDetailProduct || selectedProductForDetails;
+                    const fillingsList = (activeProd.customFillings || '')
+                      .split(',')
+                      .map(f => f.trim())
+                      .filter(Boolean);
+                    if (fillingsList.length === 0) return null;
+
+                    const maxFillingsAllowed = getMaxFillingsForProduct(activeProd, selectedSize);
+                    const helperLabel =
+                      activeLanguage === 'es'
+                        ? `Elige hasta ${maxFillingsAllowed} ${maxFillingsAllowed === 1 ? 'relleno' : 'rellenos'}`
+                        : activeLanguage === 'pt'
+                          ? `Escolha até ${maxFillingsAllowed} ${maxFillingsAllowed === 1 ? 'recheio' : 'recheios'}`
+                          : `Choose up to ${maxFillingsAllowed} ${maxFillingsAllowed === 1 ? 'filling' : 'fillings'}`;
+                    const sectionTitle =
+                      activeLanguage === 'es'
+                        ? 'Elige los Rellenos'
+                        : activeLanguage === 'pt'
+                          ? 'Escolha os Recheios'
+                          : 'Select Fillings';
+
+                    return (
+                      <div className="border-t border-gray-200/30 pt-6 space-y-3.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <h4 className="text-xs sm:text-sm font-black tracking-wide" style={{ color: theme.text }}>
+                            {sectionTitle}
+                            {activeProd.fillingsRequired !== false && (
+                              <span className="ml-1" style={{ color: theme.primary }}>*</span>
+                            )}
+                          </h4>
+                          <span className="text-[11px] font-bold" style={{ color: theme.textMuted }}>
+                            {helperLabel}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {fillingsList.map((fillingOpt, idx) => {
+                            const isSelected = selectedSandwichFillings.includes(fillingOpt);
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setSelectedSandwichFillings(prev => prev.filter(f => f !== fillingOpt));
+                                  } else if (maxFillingsAllowed === 1) {
+                                    setSelectedSandwichFillings([fillingOpt]);
+                                  } else if (selectedSandwichFillings.length >= maxFillingsAllowed) {
+                                    toast.info(
+                                      activeLanguage === 'es'
+                                        ? `Puedes elegir como máximo ${maxFillingsAllowed} rellenos.`
+                                        : activeLanguage === 'pt'
+                                          ? `Você pode escolher no máximo ${maxFillingsAllowed} recheios.`
+                                          : `You can choose up to ${maxFillingsAllowed} fillings.`
+                                    );
+                                  } else {
+                                    setSelectedSandwichFillings(prev => [...prev, fillingOpt]);
+                                  }
+                                }}
+                                className="px-4 py-3 rounded-2xl border transition-all flex items-center justify-between gap-2 text-left text-xs font-bold cursor-pointer shadow-xs active:scale-[0.98]"
+                                style={{
+                                  backgroundColor: isSelected ? theme.primary : theme.cardBgSolid,
+                                  color: isSelected ? theme.primaryContrast : theme.text,
+                                  borderColor: isSelected ? theme.primary : theme.primaryBorder,
+                                  borderWidth: isSelected ? 2 : 1,
+                                }}
+                              >
+                                <span className="leading-snug">{fillingOpt}</span>
+                                {isSelected && <Check size={14} className="shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
               {/* Bottom Sticky Action Bar */}
@@ -3064,13 +3209,14 @@ export default function Menu({
                 }}
               >
                 {(() => {
-                  const hasSizesOpt = !!(selectedProductForDetails.sizes && selectedProductForDetails.sizes.length > 0);
-                  const hasExclusionsOpt = !!(selectedProductForDetails.isMeal && selectedProductForDetails.ingredients && selectedProductForDetails.ingredients.split(',').map(i => i.trim()).filter(Boolean).length > 0);
-                  const hasSidesOpt = !!(selectedProductForDetails.isMeal && selectedProductForDetails.allowedSides && selectedProductForDetails.allowedSides.filter(id => sides.some(s => s.id === id)).length > 0);
-                  const isCustomCakeOpt = !!selectedProductForDetails.isCustomCake;
-                  const isCustomSandwichOpt = !!selectedProductForDetails.isCustomSandwich;
+                  const activeProd = liveDetailProduct || selectedProductForDetails;
+                  const hasSizesOpt = !!(activeProd.hasSizes !== false && activeProd.sizes && activeProd.sizes.length > 0);
+                  const hasExclusionsOpt = !!(activeProd.isMeal && activeProd.ingredients && activeProd.ingredients.split(',').map(i => i.trim()).filter(Boolean).length > 0);
+                  const hasSidesOpt = !!(activeProd.isMeal && activeProd.allowedSides && activeProd.allowedSides.filter(id => sides.some(s => s.id === id)).length > 0);
+                  const isCustomCakeOpt = !!activeProd.isCustomCake;
+                  const hasFillingsOpt = !!(activeProd.isCustomSandwich && activeProd.customFillings && activeProd.customFillings.split(',').map(f => f.trim()).filter(Boolean).length > 0);
 
-                  const isCakeIncomplete = selectedProductForDetails.isCustomCake && (
+                  const isCakeIncomplete = activeProd.isCustomCake && (
                     (cakeSizesList.length > 0 && !selectedCakeSize) ||
                     (cakeDoughsList.length > 0 && !selectedDough) ||
                     (cakeFillingsList.length > 0 && selectedFillings.length === 0) ||
@@ -3078,13 +3224,14 @@ export default function Menu({
                     (cakeToppersList.length > 0 && !selectedTopper)
                   );
 
-                  const isSandwichIncomplete = selectedProductForDetails.isCustomSandwich && (
-                    (Object.values(sandwichFillingQuantities) as number[]).reduce((sum, q) => sum + q, 0) === 0
-                  );
+                  const isSandwichIncomplete =
+                    hasFillingsOpt &&
+                    activeProd.fillingsRequired !== false &&
+                    selectedSandwichFillings.length === 0;
 
                   const basePrice = (hasSizesOpt && selectedSize) 
                     ? selectedSize.price 
-                    : (selectedProductForDetails.price > 0 ? selectedProductForDetails.price : (selectedProductForDetails.oldPrice || 0));
+                    : (activeProd.price > 0 ? activeProd.price : (activeProd.oldPrice || 0));
                   
                   const sidesPrice = Object.entries(sideQuantities).reduce((sum, [id, qty]) => {
                     const side = sides.find(s => s.id === id);
@@ -3093,7 +3240,7 @@ export default function Menu({
 
                   const totalPrice = basePrice + sidesPrice;
                   const isDisabled = !!isCakeIncomplete || !!isSandwichIncomplete;
-                  const minQ = selectedProductForDetails?.minQuantity && selectedProductForDetails.minQuantity > 1 ? selectedProductForDetails.minQuantity : 1;
+                  const minQ = activeProd?.minQuantity && activeProd.minQuantity > 1 ? activeProd.minQuantity : 1;
 
                   return (
                     <>
@@ -3141,19 +3288,12 @@ export default function Menu({
                         type="button"
                         disabled={isDisabled}
                         onClick={() => {
-                          const requiresFullCustomization = hasSizesOpt || hasExclusionsOpt || hasSidesOpt || isCustomCakeOpt || isCustomSandwichOpt;
+                          const requiresFullCustomization = hasSizesOpt || hasExclusionsOpt || hasSidesOpt || isCustomCakeOpt || hasFillingsOpt;
                           if (requiresFullCustomization) {
-                            addDetailedProductToCart(selectedProductForDetails);
+                            addDetailedProductToCart(activeProd);
                           } else {
-                            addToCart(selectedProductForDetails, customItemQuantity);
+                            addToCart(activeProd, customItemQuantity);
                             setSelectedProductForDetails(null);
-                            toast.success(
-                              activeLanguage === 'es'
-                                ? '¡Agregado al pedido!'
-                                : activeLanguage === 'pt'
-                                  ? 'Adicionado com sucesso ao pedido!'
-                                  : 'Added to your order!'
-                            );
                           }
                         }}
                         className={cn(

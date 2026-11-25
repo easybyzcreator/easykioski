@@ -7,8 +7,25 @@ import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = Number(process.env.PORT) || 3000;
 const isProd = process.env.NODE_ENV === 'production';
+
+function resolveServerPort(): number {
+  const portFlagIdx = process.argv.findIndex((arg) => arg === '--port' || arg === '-p');
+  if (portFlagIdx !== -1 && process.argv[portFlagIdx + 1]) {
+    const cliPort = Number(process.argv[portFlagIdx + 1]);
+    if (Number.isFinite(cliPort) && cliPort > 0) return cliPort;
+  }
+  const envPort = Number(process.env.PORT);
+  if (isProd && Number.isFinite(envPort) && envPort > 0) {
+    return envPort;
+  }
+  if (!isProd && Number.isFinite(envPort) && envPort > 0 && envPort !== 8080) {
+    return envPort;
+  }
+  return 3000;
+}
+
+const PORT = resolveServerPort();
 
 const LANGUAGE_LABELS: Record<string, string> = {
   en: 'American English (US restaurant & patisserie hospitality style)',
@@ -38,6 +55,34 @@ function getGeminiClient(): GoogleGenAI {
   });
 }
 
+function extractCleanApiErrorMessage(err: any): string {
+  const raw = String(err?.message || '').trim();
+  const status = Number(err?.status || 0);
+  if (
+    status === 503 ||
+    raw.includes('503') ||
+    raw.includes('UNAVAILABLE') ||
+    raw.includes('high demand')
+  ) {
+    return 'O serviço de tradução está temporariamente sobrecarregado. Aguarde alguns segundos e tente novamente.';
+  }
+  if (status === 429 || raw.includes('429') || raw.includes('RESOURCE_EXHAUSTED')) {
+    return 'Limite temporário de traduções atingido. Aguarde alguns segundos e tente novamente.';
+  }
+  if (raw.includes('GEMINI_API_KEY')) {
+    return 'Chave da API de tradução não configurada no servidor.';
+  }
+  if (raw.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed?.error?.message) return String(parsed.error.message);
+    } catch {
+      // ignore JSON parse failure
+    }
+  }
+  return raw || 'Falha ao traduzir os textos. Tente novamente.';
+}
+
 async function generateTranslationWithRetry(
   ai: GoogleGenAI,
   contents: string,
@@ -45,8 +90,9 @@ async function generateTranslationWithRetry(
 ) {
   const attempts: Array<{ model: string; delayMs: number }> = [
     { model: 'gemini-4-hydrogen', delayMs: 0 },
-    { model: 'gemini-4-hydrogen', delayMs: 700 },
-    { model: 'gemini-3.1-flash-lite', delayMs: 400 },
+    { model: 'gemini-3.1-flash-lite', delayMs: 600 },
+    { model: 'gemini-4-hydrogen', delayMs: 1400 },
+    { model: 'gemini-3.1-flash-lite', delayMs: 2200 },
   ];
 
   let lastError: any = null;
@@ -68,7 +114,16 @@ async function generateTranslationWithRetry(
       lastError = err;
       const msg = String(err?.message || '');
       const status = Number(err?.status || 0);
-      const isTransient = status === 503 || status === 429 || msg.includes('503') || msg.includes('UNAVAILABLE') || msg.includes('high demand');
+      const isTransient =
+        status === 503 ||
+        status === 429 ||
+        status === 500 ||
+        status === 502 ||
+        status === 504 ||
+        msg.includes('503') ||
+        msg.includes('UNAVAILABLE') ||
+        msg.includes('high demand') ||
+        msg.includes('RESOURCE_EXHAUSTED');
       if (!isTransient) {
         throw err;
       }
@@ -161,7 +216,7 @@ async function startServer() {
       const status = typeof err?.status === 'number' ? err.status : 500;
       console.error('[api/translate-catalog] Error:', err?.message || err);
       return res.status(status >= 400 && status < 600 ? status : 500).json({
-        error: err?.message || 'Failed to translate catalog items.',
+        error: extractCleanApiErrorMessage(err),
       });
     }
   });
@@ -262,15 +317,25 @@ async function startServer() {
       const status = typeof err?.status === 'number' ? err.status : 500;
       console.error('[api/translate-multilingual] Error:', err?.message || err);
       return res.status(status >= 400 && status < 600 ? status : 500).json({
-        error: err?.message || 'Falha ao traduzir os itens do cardápio.',
+        error: extractCleanApiErrorMessage(err),
       });
     }
   });
 
+  // Never let unknown /api/* requests fall through to index.html (prevents "<!doctype ... is not valid JSON")
+  app.all('/api/*', (_req, res) => {
+    res.status(404).json({ error: 'Rota de API não encontrada.' });
+  });
+
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
+    const disableHmr = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: !disableHmr,
+        watch: disableHmr ? null : undefined,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

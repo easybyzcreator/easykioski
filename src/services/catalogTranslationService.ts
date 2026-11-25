@@ -66,6 +66,13 @@ export function getLocalizedProduct(
       ? prod.ingredients_es
       : prod.ingredients_pt;
 
+  const directFillings =
+    lang === 'en'
+      ? prod.customFillings_en
+      : lang === 'es'
+      ? prod.customFillings_es
+      : prod.customFillings_pt;
+
   const legacy = prod.translations?.[lang];
 
   return {
@@ -81,8 +88,47 @@ export function getLocalizedProduct(
     ingredients:
       (directIngredients && directIngredients.trim()) ||
       prod.ingredients,
+    customFillings:
+      (directFillings && directFillings.trim()) ||
+      prod.customFillings,
     categoryTitle: localizedCategoryTitle || prod.categoryTitle,
   };
+}
+
+/**
+ * Determines whether a product actually requires the customer to make choices
+ * (size/variation, fillings, exclusions, allowed sides/swaps, or custom cake)
+ * before being added to the cart.
+ * Plain products (with only title/price/description to read) return false so `+` adds directly to cart.
+ */
+export function productRequiresCustomerSelection(product: Product, sides: Side[] = []): boolean {
+  const hasSizesOpt = Boolean(
+    product.hasSizes !== false && Array.isArray(product.sizes) && product.sizes.length > 0
+  );
+  const hasFillingsOpt = Boolean(
+    product.isCustomSandwich &&
+      product.customFillings &&
+      product.customFillings
+        .split(',')
+        .map((f) => f.trim())
+        .filter(Boolean).length > 0
+  );
+  const hasExclusionsOpt = Boolean(
+    product.isMeal &&
+      product.ingredients &&
+      product.ingredients
+        .split(',')
+        .map((i) => i.trim())
+        .filter(Boolean).length > 0
+  );
+  const hasSidesOpt = Boolean(
+    product.isMeal &&
+      Array.isArray(product.allowedSides) &&
+      product.allowedSides.some((id) => sides.some((s) => s.id === id))
+  );
+  const isCustomCakeOpt = Boolean(product.isCustomCake);
+
+  return hasSizesOpt || hasFillingsOpt || hasExclusionsOpt || hasSidesOpt || isCustomCakeOpt;
 }
 
 export function getLocalizedSideName(side: Side, lang: KioskLanguage): string {
@@ -137,6 +183,62 @@ export function countPendingCatalogTranslations(
   );
 }
 
+async function postTranslateMultilingual<T = any>(
+  items: Array<{
+    id: string;
+    kind: 'category' | 'product' | 'side';
+    title: string;
+    description?: string;
+    ingredients?: string;
+  }>,
+  fallbackErrorLabel: string
+): Promise<T> {
+  const response = await fetch('/api/translate-multilingual', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ items }),
+  });
+
+  const contentType = response.headers.get('content-type') || '';
+  const rawText = await response.text();
+  const trimmed = rawText.trim();
+
+  let parsed: any = null;
+  if (trimmed && (contentType.includes('application/json') || trimmed.startsWith('{') || trimmed.startsWith('['))) {
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      parsed = null;
+    }
+  }
+
+  if (!response.ok) {
+    if (parsed?.error) {
+      throw new Error(String(parsed.error));
+    }
+    if (trimmed.startsWith('<')) {
+      throw new Error(
+        'O servidor de tradução não respondeu nesta URL (retornou HTML). Recarregue a página ou tente novamente em alguns segundos.'
+      );
+    }
+    throw new Error(`Erro HTTP ${response.status} ${fallbackErrorLabel}.`);
+  }
+
+  if (!parsed) {
+    if (trimmed.startsWith('<')) {
+      throw new Error(
+        'O servidor de tradução não está ativo nesta hospedagem estática. Para traduzir automaticamente, abra o painel no servidor do app ou edite as traduções manualmente abaixo.'
+      );
+    }
+    throw new Error('Resposta inválida do servidor de tradução. Tente novamente.');
+  }
+
+  return parsed as T;
+}
+
 /**
  * Admin-only helper: translates a single item (product, category, or side) into EN, ES, and PT
  * via the server-side Gemini endpoint `/api/translate-multilingual`.
@@ -147,28 +249,19 @@ export async function translateSingleItemAllLanguages(input: {
   description?: string;
   ingredients?: string;
 }): Promise<MultilingualFields> {
-  const response = await fetch('/api/translate-multilingual', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      items: [
-        {
-          id: 'single',
-          kind: input.kind,
-          title: input.title || '',
-          description: input.description || '',
-          ingredients: input.ingredients || '',
-        },
-      ],
-    }),
-  });
+  const data = await postTranslateMultilingual<{ items?: Array<MultilingualFields & { id: string }> }>(
+    [
+      {
+        id: 'single',
+        kind: input.kind,
+        title: input.title || '',
+        description: input.description || '',
+        ingredients: input.ingredients || '',
+      },
+    ],
+    'ao traduzir'
+  );
 
-  if (!response.ok) {
-    const errBody = await response.json().catch(() => ({}));
-    throw new Error(errBody?.error || `Erro HTTP ${response.status} ao traduzir.`);
-  }
-
-  const data = (await response.json()) as { items?: Array<MultilingualFields & { id: string }> };
   const first = data?.items?.[0];
   if (!first) {
     throw new Error('Não foi possível obter a tradução do servidor.');
@@ -256,18 +349,10 @@ export async function translateIntroTextsAllLanguages(input: {
     return result;
   }
 
-  const response = await fetch('/api/translate-multilingual', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items: payloadItems }),
-  });
-
-  if (!response.ok) {
-    const errBody = await response.json().catch(() => ({}));
-    throw new Error(errBody?.error || `Erro HTTP ${response.status} ao traduzir textos da tela inicial.`);
-  }
-
-  const data = (await response.json()) as { items?: Array<MultilingualFields & { id: string }> };
+  const data = await postTranslateMultilingual<{ items?: Array<MultilingualFields & { id: string }> }>(
+    payloadItems,
+    'ao traduzir textos da tela inicial'
+  );
   const map = new Map((data?.items || []).map((it) => [it.id, it]));
 
   const sub = map.get('introSubtitle');
@@ -303,6 +388,85 @@ export async function translateIntroTextsAllLanguages(input: {
     result.slogan_en = slg.title_en || result.slogan_en;
     result.slogan_es = slg.title_es || result.slogan_es;
     result.slogan_pt = slg.title_pt || result.slogan_pt;
+  }
+
+  return result;
+}
+
+export interface TranslatedMainMenuTexts {
+  catalog1Title_en: string;
+  catalog1Title_es: string;
+  catalog1Title_pt: string;
+  catalog1Desc_en: string;
+  catalog1Desc_es: string;
+  catalog1Desc_pt: string;
+  catalog1Slogan_en: string;
+  catalog1Slogan_es: string;
+  catalog1Slogan_pt: string;
+}
+
+/**
+ * Admin-only helper: translates main catalog title, subtitle/description, and header slogan
+ * into EN, ES, and PT in a single batch request via `/api/translate-multilingual`.
+ */
+export async function translateMainMenuTextsAllLanguages(input: {
+  catalog1Title?: string;
+  catalog1Desc?: string;
+  catalog1Slogan?: string;
+}): Promise<TranslatedMainMenuTexts> {
+  const payloadItems: Array<{ id: string; kind: 'category'; title: string }> = [];
+
+  if (input.catalog1Title?.trim()) {
+    payloadItems.push({ id: 'catalog1Title', kind: 'category', title: input.catalog1Title.trim() });
+  }
+  if (input.catalog1Desc?.trim()) {
+    payloadItems.push({ id: 'catalog1Desc', kind: 'category', title: input.catalog1Desc.trim() });
+  }
+  if (input.catalog1Slogan?.trim()) {
+    payloadItems.push({ id: 'catalog1Slogan', kind: 'category', title: input.catalog1Slogan.trim() });
+  }
+
+  const result: TranslatedMainMenuTexts = {
+    catalog1Title_en: input.catalog1Title || '',
+    catalog1Title_es: input.catalog1Title || '',
+    catalog1Title_pt: input.catalog1Title || '',
+    catalog1Desc_en: input.catalog1Desc || '',
+    catalog1Desc_es: input.catalog1Desc || '',
+    catalog1Desc_pt: input.catalog1Desc || '',
+    catalog1Slogan_en: input.catalog1Slogan || '',
+    catalog1Slogan_es: input.catalog1Slogan || '',
+    catalog1Slogan_pt: input.catalog1Slogan || '',
+  };
+
+  if (payloadItems.length === 0) {
+    return result;
+  }
+
+  const data = await postTranslateMultilingual<{ items?: Array<MultilingualFields & { id: string }> }>(
+    payloadItems,
+    'ao traduzir textos do cardápio principal'
+  );
+  const map = new Map((data?.items || []).map((it) => [it.id, it]));
+
+  const t = map.get('catalog1Title');
+  if (t) {
+    result.catalog1Title_en = t.title_en || result.catalog1Title_en;
+    result.catalog1Title_es = t.title_es || result.catalog1Title_es;
+    result.catalog1Title_pt = t.title_pt || result.catalog1Title_pt;
+  }
+
+  const d = map.get('catalog1Desc');
+  if (d) {
+    result.catalog1Desc_en = d.title_en || result.catalog1Desc_en;
+    result.catalog1Desc_es = d.title_es || result.catalog1Desc_es;
+    result.catalog1Desc_pt = d.title_pt || result.catalog1Desc_pt;
+  }
+
+  const s = map.get('catalog1Slogan');
+  if (s) {
+    result.catalog1Slogan_en = s.title_en || result.catalog1Slogan_en;
+    result.catalog1Slogan_es = s.title_es || result.catalog1Slogan_es;
+    result.catalog1Slogan_pt = s.title_pt || result.catalog1Slogan_pt;
   }
 
   return result;
@@ -413,28 +577,18 @@ export async function translatePendingCatalogInBulk(
     });
 
     try {
-      const response = await fetch('/api/translate-multilingual', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: chunk.map(({ id, kind, title, description, ingredients }) => ({
-            id,
-            kind,
-            title,
-            description,
-            ingredients,
-          })),
-        }),
-      });
-
-      if (!response.ok) {
-        const errBody = await response.json().catch(() => ({}));
-        throw new Error(errBody?.error || `Erro HTTP ${response.status}`);
-      }
-
-      const data = (await response.json()) as {
+      const data = await postTranslateMultilingual<{
         items?: Array<MultilingualFields & { id: string; kind: string }>;
-      };
+      }>(
+        chunk.map(({ id, kind, title, description, ingredients }) => ({
+          id,
+          kind,
+          title,
+          description,
+          ingredients,
+        })),
+        'ao traduzir lote do cardápio'
+      );
 
       const results = Array.isArray(data?.items) ? data.items : [];
 

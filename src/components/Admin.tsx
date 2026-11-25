@@ -29,6 +29,7 @@ import {
   BulkTranslationProgress,
   countPendingCatalogTranslations,
   translateIntroTextsAllLanguages,
+  translateMainMenuTextsAllLanguages,
   translatePendingCatalogInBulk,
   translateSingleItemAllLanguages,
 } from '../services/catalogTranslationService';
@@ -198,6 +199,9 @@ export default function Admin({
   const [introTranslationTab, setIntroTranslationTab] = useState<'en' | 'es' | 'pt'>('en');
   const [isTranslatingIntro, setIsTranslatingIntro] = useState(false);
   const [showIntroTranslations, setShowIntroTranslations] = useState(false);
+  const [mainMenuTranslationTab, setMainMenuTranslationTab] = useState<'en' | 'es' | 'pt'>('en');
+  const [isTranslatingMainMenu, setIsTranslatingMainMenu] = useState(false);
+  const [showMainMenuTranslations, setShowMainMenuTranslations] = useState(false);
   const [showAppsScriptCode, setShowAppsScriptCode] = useState(false);
   const [isTranslatingProduct, setIsTranslatingProduct] = useState(false);
   const [isTranslatingCategory, setIsTranslatingCategory] = useState(false);
@@ -205,9 +209,18 @@ export default function Admin({
   const [bulkTranslationProgress, setBulkTranslationProgress] = useState<BulkTranslationProgress | null>(null);
   const [galleries, setGalleries] = useState<ImageGallery[]>([]);
   const [sides, setSides] = useState<Side[]>([]);
-  const [newSide, setNewSide] = useState<Partial<Side>>({ name: '', price: 0, type: 'side' });
+  const [newSide, setNewSide] = useState<Partial<Side>>({
+    name: '',
+    price: 0,
+    type: 'side',
+    title_en: '',
+    title_es: '',
+    title_pt: '',
+  });
   const [isEditingSide, setIsEditingSide] = useState<Side | null>(null);
   const [sidePriceInput, setSidePriceInput] = useState('');
+  const [isTranslatingSide, setIsTranslatingSide] = useState(false);
+  const [showSideTranslations, setShowSideTranslations] = useState(false);
   
   // Finance States
   const [variableCosts, setVariableCosts] = useState<VariableCost[]>([]);
@@ -293,11 +306,16 @@ export default function Admin({
     priceType: 'fixed',
     image: '',
     categoryId: '',
-    isMeal: true,
+    isMeal: false,
     isCustomCake: false,
     isCustomSandwich: false,
     is3D: false,
     customFillings: '',
+    customFillings_en: '',
+    customFillings_es: '',
+    customFillings_pt: '',
+    maxFillings: 1,
+    fillingsRequired: true,
     ingredients: '',
     allowedSides: [],
     isActive: true,
@@ -1111,6 +1129,23 @@ export default function Admin({
         description: newProduct.description || '',
         ingredients: newProduct.ingredients || '',
       });
+      let customFillings_en = newProduct.customFillings_en || '';
+      let customFillings_es = newProduct.customFillings_es || '';
+      let customFillings_pt = newProduct.customFillings_pt || '';
+      if (newProduct.isCustomSandwich && (newProduct.customFillings || '').trim()) {
+        try {
+          const fillingsTr = await translateSingleItemAllLanguages({
+            kind: 'product',
+            title: baseTitle,
+            ingredients: (newProduct.customFillings || '').trim(),
+          });
+          customFillings_en = fillingsTr.ingredients_en || customFillings_en;
+          customFillings_es = fillingsTr.ingredients_es || customFillings_es;
+          customFillings_pt = fillingsTr.ingredients_pt || customFillings_pt;
+        } catch (fErr) {
+          console.warn('Tradução dos recheios falhou:', fErr);
+        }
+      }
       setNewProduct(prev => ({
         ...prev,
         title_en: translated.title_en,
@@ -1122,6 +1157,9 @@ export default function Admin({
         ingredients_en: translated.ingredients_en,
         ingredients_es: translated.ingredients_es,
         ingredients_pt: translated.ingredients_pt,
+        customFillings_en,
+        customFillings_es,
+        customFillings_pt,
       }));
       toast.success('Traduções em EN / ES / PT geradas! Revise se desejar e salve.');
     } catch (err: any) {
@@ -1208,6 +1246,48 @@ export default function Admin({
     }
   };
 
+  const handleAutoTranslateMainMenuTexts = async () => {
+    const title = (settings?.catalog1Title || '').trim();
+    const desc = (settings?.catalog1Desc || '').trim();
+    const slogan = (settings?.catalog1Slogan || '').trim();
+
+    if (!title && !desc && !slogan) {
+      toast.error('Preencha ao menos um texto do Cardápio Principal antes de traduzir.');
+      return;
+    }
+
+    setIsTranslatingMainMenu(true);
+    try {
+      const translated = await translateMainMenuTextsAllLanguages({
+        catalog1Title: title,
+        catalog1Desc: desc,
+        catalog1Slogan: slogan,
+      });
+      setSettings((prev) => ({
+        ...prev,
+        catalog1Title_en: translated.catalog1Title_en,
+        catalog1Title_es: translated.catalog1Title_es,
+        catalog1Title_pt: translated.catalog1Title_pt,
+        catalog1Desc_en: translated.catalog1Desc_en,
+        catalog1Desc_es: translated.catalog1Desc_es,
+        catalog1Desc_pt: translated.catalog1Desc_pt,
+        catalog1Slogan_en: translated.catalog1Slogan_en,
+        catalog1Slogan_es: translated.catalog1Slogan_es,
+        catalog1Slogan_pt: translated.catalog1Slogan_pt,
+        slogan_en: translated.catalog1Slogan_en || prev.slogan_en,
+        slogan_es: translated.catalog1Slogan_es || prev.slogan_es,
+        slogan_pt: translated.catalog1Slogan_pt || prev.slogan_pt,
+      }));
+      setShowMainMenuTranslations(true);
+      toast.success('Textos do Cardápio Principal traduzidos em EN / ES / PT! Clique em "Salvar Alterações" para aplicar.');
+    } catch (err: any) {
+      console.error('Erro ao traduzir textos do cardápio principal:', err);
+      toast.error(`Erro ao traduzir: ${err?.message || 'verifique sua conexão.'}`);
+    } finally {
+      setIsTranslatingMainMenu(false);
+    }
+  };
+
   const handleBulkTranslateCatalog = async () => {
     if (isBulkTranslating) return;
     const totalPending = countPendingCatalogTranslations(categories, products, sides);
@@ -1258,9 +1338,13 @@ export default function Admin({
       let ingredients_en = (newProduct.ingredients_en || '').trim();
       let ingredients_es = (newProduct.ingredients_es || '').trim();
       let ingredients_pt = (newProduct.ingredients_pt || '').trim();
+      let customFillings_en = (newProduct.customFillings_en || '').trim();
+      let customFillings_es = (newProduct.customFillings_es || '').trim();
+      let customFillings_pt = (newProduct.customFillings_pt || '').trim();
 
       const hasDesc = Boolean((newProduct.description || '').trim());
       const hasIng = Boolean((newProduct.ingredients || '').trim());
+      const hasCustomFillings = Boolean(newProduct.isCustomSandwich && (newProduct.customFillings || '').trim());
       const needsAutoTranslate =
         !title_en ||
         !title_es ||
@@ -1294,6 +1378,21 @@ export default function Admin({
         }
       }
 
+      if (hasCustomFillings && (!customFillings_en || !customFillings_es || !customFillings_pt)) {
+        try {
+          const fillingsTr = await translateSingleItemAllLanguages({
+            kind: 'product',
+            title: newProduct.title.trim(),
+            ingredients: (newProduct.customFillings || '').trim(),
+          });
+          if (!customFillings_en) customFillings_en = fillingsTr.ingredients_en;
+          if (!customFillings_es) customFillings_es = fillingsTr.ingredients_es;
+          if (!customFillings_pt) customFillings_pt = fillingsTr.ingredients_pt;
+        } catch (fErr) {
+          console.warn('Auto-tradução dos recheios falhou:', fErr);
+        }
+      }
+
       const safePrice = Number.isFinite(Number(newProduct.price)) ? Number(newProduct.price) : 0;
       const safeOldPrice = Number.isFinite(Number(newProduct.oldPrice)) ? Number(newProduct.oldPrice) : 0;
       // Se o admin preencheu apenas Preço Original (De) e deixou Promocional zerado, assume esse valor como preço principal para evitar produto sem preço
@@ -1305,6 +1404,13 @@ export default function Admin({
         title: newProduct.title.trim(),
         description: (newProduct.description || '').trim(),
         ingredients: (newProduct.ingredients || '').trim(),
+        customFillings: (newProduct.customFillings || '').trim(),
+        customFillings_en,
+        customFillings_es,
+        customFillings_pt,
+        maxFillings: Math.max(1, Number(newProduct.maxFillings) || 1),
+        fillingsRequired: newProduct.fillingsRequired !== false,
+        allowedSides: Array.isArray(newProduct.allowedSides) ? newProduct.allowedSides : [],
         price: effectivePrice,
         oldPrice: effectiveOldPrice,
         title_en: title_en || newProduct.title.trim(),
@@ -1350,15 +1456,20 @@ export default function Admin({
         ingredients_en: '',
         ingredients_es: '',
         ingredients_pt: '',
+        customFillings_en: '',
+        customFillings_es: '',
+        customFillings_pt: '',
         price: 0, 
         priceType: 'fixed',
         image: '', 
         categoryId: '',
-        isMeal: true,
+        isMeal: false,
         isCustomCake: false,
         isCustomSandwich: false,
         is3D: false,
         customFillings: '',
+        maxFillings: 1,
+        fillingsRequired: true,
         ingredients: '',
         allowedSides: [],
         isActive: true,
@@ -1435,21 +1546,86 @@ export default function Admin({
     await updateDoc(doc(db, 'categorias', other.id), { order: newOtherOrder });
   };
 
+  const handleAutoTranslateSide = async () => {
+    const baseName = (newSide.name || '').trim();
+    if (!baseName) {
+      toast.error('Digite o nome do acompanhamento antes de traduzir.');
+      return;
+    }
+    setIsTranslatingSide(true);
+    try {
+      const translated = await translateSingleItemAllLanguages({
+        kind: 'side',
+        title: baseName,
+      });
+      setNewSide(prev => ({
+        ...prev,
+        title_en: translated.title_en,
+        title_es: translated.title_es,
+        title_pt: translated.title_pt,
+      }));
+      setShowSideTranslations(true);
+      toast.success('Traduções em EN / ES / PT geradas!');
+    } catch (err: any) {
+      console.error('Erro ao traduzir acompanhamento:', err);
+      toast.error(`Erro ao traduzir: ${err?.message || 'verifique sua conexão.'}`);
+    } finally {
+      setIsTranslatingSide(false);
+    }
+  };
+
   const handleAddSide = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSide.name) return;
+    const trimmedName = (newSide.name || '').trim();
+    if (!trimmedName) {
+      toast.error('Por favor, informe o nome do acompanhamento.');
+      return;
+    }
 
     try {
+      let title_en = (newSide.title_en || '').trim();
+      let title_es = (newSide.title_es || '').trim();
+      let title_pt = (newSide.title_pt || '').trim();
+
+      if (!title_en || !title_es || !title_pt) {
+        try {
+          const autoTr = await translateSingleItemAllLanguages({
+            kind: 'side',
+            title: trimmedName,
+          });
+          if (!title_en) title_en = autoTr.title_en;
+          if (!title_es) title_es = autoTr.title_es;
+          if (!title_pt) title_pt = autoTr.title_pt;
+        } catch (trErr) {
+          console.warn('Auto-tradução ao salvar acompanhamento falhou:', trErr);
+        }
+      }
+
+      const sidePayload = stripUndefinedDeep({
+        name: trimmedName,
+        type: newSide.type || 'side',
+        price: Number.isFinite(Number(newSide.price)) ? Math.max(0, Number(newSide.price)) : 0,
+        title_en: title_en || trimmedName,
+        title_es: title_es || trimmedName,
+        title_pt: title_pt || trimmedName,
+        translations: {
+          en: { title: title_en || trimmedName },
+          es: { title: title_es || trimmedName },
+          pt: { title: title_pt || trimmedName },
+        },
+      });
+
       if (isEditingSide) {
-        await updateDoc(doc(db, 'acompanhamentos', isEditingSide.id), newSide);
+        await updateDoc(doc(db, 'acompanhamentos', isEditingSide.id), sidePayload);
         toast.success('Acompanhamento atualizado!');
       } else {
-        await addDoc(collection(db, 'acompanhamentos'), newSide);
+        await addDoc(collection(db, 'acompanhamentos'), sidePayload);
         toast.success('Acompanhamento adicionado!');
       }
-      setNewSide({ name: '', price: 0, type: 'side' });
+      setNewSide({ name: '', price: 0, type: 'side', title_en: '', title_es: '', title_pt: '' });
       setSidePriceInput('');
       setIsEditingSide(null);
+      setShowSideTranslations(false);
     } catch (error) {
       console.error('Error adding side:', error);
       toast.error('Erro ao salvar acompanhamento');
@@ -1475,9 +1651,13 @@ export default function Admin({
 
   const handleSidePriceChange = (val: string) => {
     setSidePriceInput(val);
+    if (!val.trim()) {
+      setNewSide(prev => ({ ...prev, price: 0 }));
+      return;
+    }
     const numeric = parseFloat(val.replace(',', '.'));
     if (!isNaN(numeric)) {
-      setNewSide({ ...newSide, price: numeric });
+      setNewSide(prev => ({ ...prev, price: Math.max(0, numeric) }));
     }
   };
 
@@ -2795,6 +2975,17 @@ export default function Admin({
             style={activeTab === 'sortMenu' ? { backgroundColor: settings?.primaryColor || '#865d39', color: getContrastText(settings?.primaryColor || '#865d39') } : {}}
           >
             <ArrowUpDown size={20} /> Organizar Cardápio
+          </button>
+
+          <button 
+            onClick={() => setActiveTab('sides')}
+            className={cn(
+              "flex items-center gap-3 p-3 rounded-xl transition-all font-semibold",
+              activeTab === 'sides' ? "shadow-lg font-bold" : "hover:bg-white/30 text-black"
+            )}
+            style={activeTab === 'sides' ? { backgroundColor: settings?.primaryColor || '#865d39', color: getContrastText(settings?.primaryColor || '#865d39') } : {}}
+          >
+            <Plus size={20} /> Acompanhamentos
           </button>
 
           <button 
@@ -5132,6 +5323,138 @@ export default function Admin({
                     </label>
                   </div>
                 </div>
+
+                {/* Tradução Automática EN / ES / PT dos Textos do Cardápio Principal */}
+                <div className="pt-3 border-t border-gray-200/80 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <button
+                      type="button"
+                      disabled={isTranslatingMainMenu}
+                      onClick={handleAutoTranslateMainMenuTexts}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      {isTranslatingMainMenu ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                      <span>
+                        {isTranslatingMainMenu
+                          ? 'Traduzindo para EN / ES / PT...'
+                          : '✨ Traduzir Textos do Cardápio Principal para EN / ES / PT'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowMainMenuTranslations(!showMainMenuTranslations)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold transition-all cursor-pointer"
+                    >
+                      <Globe size={14} />
+                      <span>{showMainMenuTranslations ? 'Ocultar Traduções' : 'Ver / Editar Traduções EN / ES / PT'}</span>
+                    </button>
+                  </div>
+
+                  {showMainMenuTranslations && (
+                    <div className="p-4 rounded-2xl bg-stone-50 border border-stone-200 space-y-3">
+                      <div className="flex items-center gap-1.5">
+                        {(['en', 'es', 'pt'] as const).map((lng) => (
+                          <button
+                            key={lng}
+                            type="button"
+                            onClick={() => setMainMenuTranslationTab(lng)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all cursor-pointer ${
+                              mainMenuTranslationTab === lng
+                                ? 'bg-stone-900 text-white shadow-xs'
+                                : 'bg-white border border-stone-200 text-stone-600 hover:bg-stone-100'
+                            }`}
+                          >
+                            {lng === 'en' ? '🇺🇸 English (EN)' : lng === 'es' ? '🇪🇸 Español (ES)' : '🇧🇷 Português (PT)'}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-stone-500">
+                            Título do Cardápio ({mainMenuTranslationTab.toUpperCase()})
+                          </label>
+                          <input
+                            type="text"
+                            className="w-full p-2 rounded-lg border border-stone-300 bg-white text-xs font-semibold"
+                            value={
+                              mainMenuTranslationTab === 'en'
+                                ? settings?.catalog1Title_en || ''
+                                : mainMenuTranslationTab === 'es'
+                                  ? settings?.catalog1Title_es || ''
+                                  : settings?.catalog1Title_pt || ''
+                            }
+                            onChange={(e) =>
+                              setSettings({
+                                ...settings,
+                                ...(mainMenuTranslationTab === 'en'
+                                  ? { catalog1Title_en: e.target.value }
+                                  : mainMenuTranslationTab === 'es'
+                                    ? { catalog1Title_es: e.target.value }
+                                    : { catalog1Title_pt: e.target.value }),
+                              })
+                            }
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold uppercase text-stone-500">
+                            Descrição / Subtítulo ({mainMenuTranslationTab.toUpperCase()})
+                          </label>
+                          <input
+                            type="text"
+                            className="w-full p-2 rounded-lg border border-stone-300 bg-white text-xs"
+                            value={
+                              mainMenuTranslationTab === 'en'
+                                ? settings?.catalog1Desc_en || ''
+                                : mainMenuTranslationTab === 'es'
+                                  ? settings?.catalog1Desc_es || ''
+                                  : settings?.catalog1Desc_pt || ''
+                            }
+                            onChange={(e) =>
+                              setSettings({
+                                ...settings,
+                                ...(mainMenuTranslationTab === 'en'
+                                  ? { catalog1Desc_en: e.target.value }
+                                  : mainMenuTranslationTab === 'es'
+                                    ? { catalog1Desc_es: e.target.value }
+                                    : { catalog1Desc_pt: e.target.value }),
+                              })
+                            }
+                          />
+                        </div>
+
+                        <div className="space-y-1 sm:col-span-2">
+                          <label className="text-[10px] font-bold uppercase text-stone-500">
+                            Slogan / Frase de Destaque ({mainMenuTranslationTab.toUpperCase()})
+                          </label>
+                          <textarea
+                            rows={2}
+                            className="w-full p-2 rounded-lg border border-stone-300 bg-white text-xs"
+                            value={
+                              mainMenuTranslationTab === 'en'
+                                ? settings?.catalog1Slogan_en || ''
+                                : mainMenuTranslationTab === 'es'
+                                  ? settings?.catalog1Slogan_es || ''
+                                  : settings?.catalog1Slogan_pt || ''
+                            }
+                            onChange={(e) =>
+                              setSettings({
+                                ...settings,
+                                ...(mainMenuTranslationTab === 'en'
+                                  ? { catalog1Slogan_en: e.target.value, slogan_en: e.target.value }
+                                  : mainMenuTranslationTab === 'es'
+                                    ? { catalog1Slogan_es: e.target.value, slogan_es: e.target.value }
+                                    : { catalog1Slogan_pt: e.target.value, slogan_pt: e.target.value }),
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Link Externo & QR Code para Clientes (Mobile Pickup) */}
@@ -5904,6 +6227,231 @@ export default function Admin({
                         </div>
                       </div>
                     )}
+
+                    {/* Montagem Personalizada (Tapiocas / Sanduíches / Bowls) */}
+                    <div className="pt-3 border-t border-gray-200/70 space-y-3">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="w-5 h-5 rounded border-gray-300 accent-blue-600"
+                          checked={!!newProduct.isCustomSandwich}
+                          onChange={e =>
+                            setNewProduct({
+                              ...newProduct,
+                              isCustomSandwich: e.target.checked,
+                            })
+                          }
+                        />
+                        <span className="font-bold text-sm text-gray-800">
+                          Montagem Personalizada (Tapiocas / Sanduíches / Bowls)
+                        </span>
+                      </label>
+
+                      {newProduct.isCustomSandwich && (
+                        <div className="space-y-3 pl-8 text-black">
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-gray-600">
+                              Recheios Disponíveis (separados por vírgula)
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Ex: Queijo Mussarela, Presunto, Goiabada, Doce de Leite"
+                              className="w-full p-3 rounded-xl border border-gray-300 bg-white text-sm text-black"
+                              value={newProduct.customFillings || ''}
+                              onChange={e => setNewProduct({ ...newProduct, customFillings: e.target.value })}
+                            />
+                            <p className="text-[11px] text-gray-500 leading-relaxed">
+                              Digite os recheios disponíveis separados por vírgula. Se você ativar variações com número no nome (ex: "1 Recheio", "2 Recheios"), a quantidade máxima será definida automaticamente pelo número da variação.
+                            </p>
+                          </div>
+
+                          {!newProduct.hasSizes && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-white/80 border border-gray-200">
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-600">
+                                  Máximo de recheios permitidos
+                                </label>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={20}
+                                  className="w-full p-2 rounded-lg border border-gray-300 bg-white text-sm font-bold text-black"
+                                  value={newProduct.maxFillings ?? 1}
+                                  onChange={e =>
+                                    setNewProduct({
+                                      ...newProduct,
+                                      maxFillings: Math.max(1, parseInt(e.target.value, 10) || 1),
+                                    })
+                                  }
+                                />
+                              </div>
+                              <div className="flex items-center pt-3 sm:pt-5">
+                                <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-gray-700">
+                                  <input
+                                    type="checkbox"
+                                    className="w-4 h-4 rounded border-gray-300"
+                                    checked={newProduct.fillingsRequired !== false}
+                                    onChange={e =>
+                                      setNewProduct({
+                                        ...newProduct,
+                                        fillingsRequired: e.target.checked,
+                                      })
+                                    }
+                                  />
+                                  Escolha obrigatória (mínimo 1 recheio)
+                                </label>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Opções de Personalização do Prato (Exclusões, Acompanhamentos e Trocas) */}
+                    <div className="pt-3 border-t border-gray-200/70 space-y-3">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="w-5 h-5 rounded border-gray-300 accent-blue-600"
+                          checked={!!newProduct.isMeal}
+                          onChange={e =>
+                            setNewProduct({
+                              ...newProduct,
+                              isMeal: e.target.checked,
+                            })
+                          }
+                        />
+                        <span className="font-bold text-sm text-gray-800">
+                          Habilitar Opções de Personalização (Exclusões, Acompanhamentos e Trocas)
+                        </span>
+                      </label>
+
+                      {newProduct.isMeal && (
+                        <div className="space-y-4 pl-8 text-black">
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-gray-600">
+                              Itens para Exclusão (separados por vírgula)
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Ex: Cebola, Alho, Pimenta, Tomate, Maionese"
+                              className="w-full p-3 rounded-xl border border-gray-300 bg-white text-sm text-black"
+                              value={newProduct.ingredients || ''}
+                              onChange={e => setNewProduct({ ...newProduct, ingredients: e.target.value })}
+                            />
+                            <p className="text-[11px] text-gray-500">
+                              O cliente poderá marcar quais ingredientes deseja retirar do prato/lanche.
+                            </p>
+                          </div>
+
+                          {/* Acompanhamentos Permitidos */}
+                          {(() => {
+                            const regularSides = sides.filter(s => s.type !== 'swap');
+                            const swapSides = sides.filter(s => s.type === 'swap');
+                            const selectedIds = newProduct.allowedSides || [];
+
+                            const toggleSideId = (sideId: string) => {
+                              const next = selectedIds.includes(sideId)
+                                ? selectedIds.filter(id => id !== sideId)
+                                : [...selectedIds, sideId];
+                              setNewProduct({ ...newProduct, allowedSides: next });
+                            };
+
+                            return (
+                              <div className="space-y-4">
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <label className="text-[11px] font-bold uppercase tracking-wider text-gray-600">
+                                      Acompanhamentos Permitidos
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => setActiveTab('sides')}
+                                      className="text-[11px] font-bold underline cursor-pointer"
+                                      style={{ color: settings?.primaryColor || '#865d39' }}
+                                    >
+                                      Gerenciar Acompanhamentos →
+                                    </button>
+                                  </div>
+                                  {regularSides.length > 0 ? (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      {regularSides.map(side => {
+                                        const checked = selectedIds.includes(side.id);
+                                        return (
+                                          <label
+                                            key={side.id}
+                                            className={cn(
+                                              "flex items-center justify-between gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all",
+                                              checked
+                                                ? "bg-stone-50 border-stone-400 text-stone-900"
+                                                : "bg-white border-gray-200 text-gray-700 hover:border-gray-300"
+                                            )}
+                                          >
+                                            <span className="flex items-center gap-2 min-w-0">
+                                              <input
+                                                type="checkbox"
+                                                className="w-4 h-4 rounded border-gray-300 shrink-0"
+                                                checked={checked}
+                                                onChange={() => toggleSideId(side.id)}
+                                              />
+                                              <span className="truncate">{side.name}</span>
+                                            </span>
+                                            <span className="text-[10px] font-bold text-gray-500 shrink-0">
+                                              {side.price > 0 ? `+${currencySymbol} ${side.price.toFixed(2)}` : 'Grátis'}
+                                            </span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-gray-500 bg-white/70 border border-dashed border-gray-300 rounded-xl p-3">
+                                      Nenhum acompanhamento cadastrado ainda. Clique em <strong>Acompanhamentos</strong> no menu lateral para criar.
+                                    </p>
+                                  )}
+                                </div>
+
+                                {swapSides.length > 0 && (
+                                  <div className="space-y-2">
+                                    <label className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
+                                      Opções de Troca Permitidas (Swap)
+                                    </label>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      {swapSides.map(side => {
+                                        const checked = selectedIds.includes(side.id);
+                                        return (
+                                          <label
+                                            key={side.id}
+                                            className={cn(
+                                              "flex items-center justify-between gap-2 p-2.5 rounded-xl border text-xs font-semibold cursor-pointer transition-all",
+                                              checked
+                                                ? "bg-amber-50/70 border-amber-400 text-amber-950"
+                                                : "bg-white border-gray-200 text-gray-700 hover:border-gray-300"
+                                            )}
+                                          >
+                                            <span className="flex items-center gap-2 min-w-0">
+                                              <input
+                                                type="checkbox"
+                                                className="w-4 h-4 rounded border-gray-300 shrink-0"
+                                                checked={checked}
+                                                onChange={() => toggleSideId(side.id)}
+                                              />
+                                              <span className="truncate">{side.name}</span>
+                                            </span>
+                                            <span className="text-[10px] font-bold text-amber-800 shrink-0">
+                                              {side.price > 0 ? `+${currencySymbol} ${side.price.toFixed(2)}` : 'Grátis'}
+                                            </span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -5954,15 +6502,27 @@ export default function Admin({
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold uppercase text-stone-600">Ingredientes / Alérgicos em Inglês (EN)</label>
+                      <label className="text-[11px] font-bold uppercase text-stone-600">Ingredientes / Exclusões em Inglês (EN)</label>
                       <input
                         type="text"
                         className="w-full p-2.5 rounded-xl border border-gray-300 bg-white text-sm text-black"
-                        placeholder="Ex: Organic açaí, banana, strawberry, granola"
+                        placeholder="Ex: Onion, Garlic, Tomato"
                         value={newProduct.ingredients_en || ''}
                         onChange={e => setNewProduct({ ...newProduct, ingredients_en: e.target.value })}
                       />
                     </div>
+                    {newProduct.isCustomSandwich && (
+                      <div className="md:col-span-2 space-y-1.5">
+                        <label className="text-[11px] font-bold uppercase text-stone-600">Recheios Disponíveis em Inglês (EN)</label>
+                        <input
+                          type="text"
+                          className="w-full p-2.5 rounded-xl border border-gray-300 bg-white text-sm text-black"
+                          placeholder="Ex: Mozzarella Cheese, Ham, Chocolate, Nutella"
+                          value={newProduct.customFillings_en || ''}
+                          onChange={e => setNewProduct({ ...newProduct, customFillings_en: e.target.value })}
+                        />
+                      </div>
+                    )}
                     <div className="md:col-span-2 space-y-1.5">
                       <label className="text-[11px] font-bold uppercase text-stone-600">Descrição em Inglês (EN)</label>
                       <textarea
@@ -5989,15 +6549,27 @@ export default function Admin({
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold uppercase text-stone-600">Ingredientes / Alérgicos em Espanhol (ES)</label>
+                      <label className="text-[11px] font-bold uppercase text-stone-600">Ingredientes / Exclusões em Espanhol (ES)</label>
                       <input
                         type="text"
                         className="w-full p-2.5 rounded-xl border border-gray-300 bg-white text-sm text-black"
-                        placeholder="Ex: Açaí orgánico, plátano, fresa, granola"
+                        placeholder="Ex: Cebolla, Ajo, Tomate"
                         value={newProduct.ingredients_es || ''}
                         onChange={e => setNewProduct({ ...newProduct, ingredients_es: e.target.value })}
                       />
                     </div>
+                    {newProduct.isCustomSandwich && (
+                      <div className="md:col-span-2 space-y-1.5">
+                        <label className="text-[11px] font-bold uppercase text-stone-600">Recheios Disponíveis em Espanhol (ES)</label>
+                        <input
+                          type="text"
+                          className="w-full p-2.5 rounded-xl border border-gray-300 bg-white text-sm text-black"
+                          placeholder="Ex: Queso Mozzarella, Jamón, Chocolate, Nutella"
+                          value={newProduct.customFillings_es || ''}
+                          onChange={e => setNewProduct({ ...newProduct, customFillings_es: e.target.value })}
+                        />
+                      </div>
+                    )}
                     <div className="md:col-span-2 space-y-1.5">
                       <label className="text-[11px] font-bold uppercase text-stone-600">Descrição em Espanhol (ES)</label>
                       <textarea
@@ -6024,15 +6596,27 @@ export default function Admin({
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[11px] font-bold uppercase text-stone-600">Ingredientes / Alérgicos em Português (PT)</label>
+                      <label className="text-[11px] font-bold uppercase text-stone-600">Ingredientes / Exclusões em Português (PT)</label>
                       <input
                         type="text"
                         className="w-full p-2.5 rounded-xl border border-gray-300 bg-white text-sm text-black"
-                        placeholder="Ex: Açaí, banana, morango e granola"
+                        placeholder="Ex: Cebola, Alho, Tomate"
                         value={newProduct.ingredients_pt || ''}
                         onChange={e => setNewProduct({ ...newProduct, ingredients_pt: e.target.value })}
                       />
                     </div>
+                    {newProduct.isCustomSandwich && (
+                      <div className="md:col-span-2 space-y-1.5">
+                        <label className="text-[11px] font-bold uppercase text-stone-600">Recheios Disponíveis em Português (PT)</label>
+                        <input
+                          type="text"
+                          className="w-full p-2.5 rounded-xl border border-gray-300 bg-white text-sm text-black"
+                          placeholder="Ex: Queijo Mussarela, Presunto, Chocolate, Nutella"
+                          value={newProduct.customFillings_pt || ''}
+                          onChange={e => setNewProduct({ ...newProduct, customFillings_pt: e.target.value })}
+                        />
+                      </div>
+                    )}
                     <div className="md:col-span-2 space-y-1.5">
                       <label className="text-[11px] font-bold uppercase text-stone-600">Descrição em Português (PT)</label>
                       <textarea
@@ -6069,8 +6653,9 @@ export default function Admin({
                         title: '', description: '', title_en: '', title_es: '', title_pt: '',
                         description_en: '', description_es: '', description_pt: '',
                         ingredients_en: '', ingredients_es: '', ingredients_pt: '',
+                        customFillings_en: '', customFillings_es: '', customFillings_pt: '',
                         price: 0, oldPrice: 0, priceType: 'fixed',
-                        image: '', categoryId: '', isMeal: true, isCustomCake: false, isCustomSandwich: false, customFillings: '', ingredients: '', allowedSides: [], isActive: true,
+                        image: '', categoryId: '', isMeal: false, isCustomCake: false, isCustomSandwich: false, customFillings: '', maxFillings: 1, fillingsRequired: true, ingredients: '', allowedSides: [], isActive: true,
                         hasSizes: false, sizes: [],
                         nutritionalInfo: {
                           calories: '',
@@ -6156,6 +6741,9 @@ export default function Admin({
                               ingredients_en: product.ingredients_en || '',
                               ingredients_es: product.ingredients_es || '',
                               ingredients_pt: product.ingredients_pt || '',
+                              customFillings_en: product.customFillings_en || '',
+                              customFillings_es: product.customFillings_es || '',
+                              customFillings_pt: product.customFillings_pt || '',
                               price: product.price,
                               oldPrice: product.oldPrice || 0,
                               priceType: product.priceType || 'fixed',
@@ -6166,6 +6754,8 @@ export default function Admin({
                               isCustomSandwich: product.isCustomSandwich || false,
                               is3D: product.is3D || false,
                               customFillings: product.customFillings || '',
+                              maxFillings: product.maxFillings ?? 1,
+                              fillingsRequired: product.fillingsRequired !== false,
                               ingredients: product.ingredients || '',
                               allowedSides: product.allowedSides || [],
                               isActive: product.isActive ?? true,
@@ -6267,13 +6857,18 @@ export default function Admin({
                         <span className="text-[10px] font-bold uppercase tracking-wider opacity-40">
                           {categories.find(c => c.id === product.categoryId)?.title || 'Sem categoria'}
                         </span>
-                        <div className="flex gap-1.5">
-                          {product.isMeal && (
-                            <span className="px-2 py-1 bg-green-50 text-green-600 text-[10px] font-bold rounded-full uppercase">
-                              Opções de Personalização
+                        <div className="flex flex-wrap gap-1.5">
+                          {product.isCustomSandwich && product.customFillings?.trim() && (
+                            <span className="px-2 py-1 bg-purple-50 text-purple-700 text-[10px] font-bold rounded-full uppercase">
+                              Recheios
                             </span>
                           )}
-                          {product.sizes && product.sizes.length > 0 && (
+                          {product.isMeal && (Boolean(product.ingredients?.trim()) || (product.allowedSides && product.allowedSides.length > 0)) && (
+                            <span className="px-2 py-1 bg-green-50 text-green-600 text-[10px] font-bold rounded-full uppercase">
+                              Personalização
+                            </span>
+                          )}
+                          {product.hasSizes !== false && product.sizes && product.sizes.length > 0 && (
                             <span className="px-2 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-full uppercase">
                               Múltiplos Tamanhos
                             </span>
@@ -6299,6 +6894,243 @@ export default function Admin({
               setActiveTab('menu');
             }}
           />
+        )}
+
+        {activeTab === 'sides' && (
+          <div className="max-w-5xl space-y-8 pb-10">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+              <div>
+                <h2 className="text-3xl font-serif font-bold text-black">
+                  Acompanhamentos e Trocas
+                </h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Cadastre extras e trocas (Swap) e vincule-os aos pratos específicos na aba <strong>Gerenciar Cardápio</strong>.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('menu')}
+                className="self-start sm:self-auto px-4 py-2 rounded-xl text-xs font-bold border border-gray-300 bg-white hover:bg-gray-50 text-gray-800 cursor-pointer transition-all"
+              >
+                Ir para Gerenciar Cardápio →
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleAddSide}
+              className="bg-white/95 backdrop-blur-md p-6 sm:p-8 rounded-3xl space-y-6 shadow-md border border-black/10"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <h3 className="text-lg font-bold text-black">
+                  {isEditingSide ? 'Editar Acompanhamento / Troca' : 'Novo Acompanhamento / Troca'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={handleAutoTranslateSide}
+                  disabled={isTranslatingSide}
+                  className="self-start sm:self-auto px-3.5 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-60 transition-all"
+                >
+                  {isTranslatingSide ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                  {isTranslatingSide ? 'Traduzindo...' : 'Traduzir EN / ES / PT'}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-gray-700">Nome da Customização</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ex: Vinagrete, Extra Bacon, Trocar por Catupiry..."
+                    className="w-full p-3 rounded-xl border border-gray-300 bg-white text-sm text-black"
+                    value={newSide.name || ''}
+                    onChange={e => setNewSide({ ...newSide, name: e.target.value })}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-gray-700">Tipo de Customização</label>
+                  <select
+                    className="w-full p-3 rounded-xl border border-gray-300 bg-white text-sm text-black"
+                    value={newSide.type || 'side'}
+                    onChange={e => setNewSide({ ...newSide, type: e.target.value as 'side' | 'swap' })}
+                  >
+                    <option value="side">Acompanhamento (Normal)</option>
+                    <option value="swap">Troca (Swap)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-gray-700">
+                    Preço Adicional ({currencySymbol})
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="0.00 (Grátis)"
+                    className="w-full p-3 rounded-xl border border-gray-300 bg-white text-sm text-black"
+                    value={sidePriceInput}
+                    onChange={e => handleSidePriceChange(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Traduções manuais / revisáveis (EN / ES / PT) */}
+              <div className="border-t border-gray-200 pt-4 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setShowSideTranslations(prev => !prev)}
+                  className="text-xs font-bold text-stone-700 hover:text-stone-950 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Globe size={14} />
+                  {showSideTranslations ? 'Ocultar traduções (EN / ES / PT)' : 'Ver / editar traduções (EN / ES / PT)'}
+                </button>
+                {showSideTranslations && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-stone-600">Inglês (EN)</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Rice"
+                        className="w-full p-2.5 rounded-xl border border-gray-300 bg-white text-sm text-black"
+                        value={newSide.title_en || ''}
+                        onChange={e => setNewSide({ ...newSide, title_en: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-stone-600">Espanhol (ES)</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Arroz"
+                        className="w-full p-2.5 rounded-xl border border-gray-300 bg-white text-sm text-black"
+                        value={newSide.title_es || ''}
+                        onChange={e => setNewSide({ ...newSide, title_es: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-bold uppercase text-stone-600">Português (PT)</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Arroz"
+                        className="w-full p-2.5 rounded-xl border border-gray-300 bg-white text-sm text-black"
+                        value={newSide.title_pt || ''}
+                        onChange={e => setNewSide({ ...newSide, title_pt: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="submit"
+                  className="px-6 py-3 rounded-xl font-bold text-sm shadow-md flex items-center gap-2 cursor-pointer active:scale-95 transition-all"
+                  style={{
+                    backgroundColor: settings?.primaryColor || '#865d39',
+                    color: getContrastText(settings?.primaryColor || '#865d39'),
+                  }}
+                >
+                  {isEditingSide ? <Save size={16} /> : <Plus size={16} />}
+                  {isEditingSide ? 'Salvar Alterações' : 'Adicionar'}
+                </button>
+                {isEditingSide && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingSide(null);
+                      setNewSide({ name: '', price: 0, type: 'side', title_en: '', title_es: '', title_pt: '' });
+                      setSidePriceInput('');
+                      setShowSideTranslations(false);
+                    }}
+                    className="px-5 py-3 rounded-xl bg-gray-200 hover:bg-gray-300 font-bold text-sm text-black cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                )}
+              </div>
+            </form>
+
+            {sides.length === 0 ? (
+              <div className="text-center p-12 bg-white/90 rounded-3xl border border-dashed border-gray-300">
+                <p className="text-sm font-bold text-gray-600">
+                  Nenhum acompanhamento ou troca cadastrado ainda.
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Use o formulário acima para criar acompanhamentos (ex: Farofa, Vinagrete, Queijo Extra) ou trocas (Swap).
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {sides.map(side => {
+                  const isSwap = side.type === 'swap';
+                  return (
+                    <div
+                      key={side.id}
+                      className="bg-white/95 backdrop-blur-md p-5 rounded-2xl border border-black/10 shadow-sm flex items-center justify-between gap-4"
+                    >
+                      <div className="min-w-0 space-y-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-base text-black truncate">
+                            {side.name}
+                          </span>
+                          <span
+                            className={cn(
+                              "px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider",
+                              isSwap
+                                ? "bg-amber-100 text-amber-800"
+                                : "bg-stone-100 text-stone-700"
+                            )}
+                          >
+                            {isSwap ? 'TROCA (SWAP)' : 'ACOMPANHAMENTO'}
+                          </span>
+                        </div>
+                        <div className="text-sm font-black text-stone-700">
+                          {side.price > 0
+                            ? `${currencySymbol} ${side.price.toFixed(2)}`
+                            : 'Grátis'}
+                        </div>
+                        {(side.title_en || side.title_es || side.title_pt) && (
+                          <div className="text-[11px] text-gray-500 truncate">
+                            EN: {side.title_en || side.name} · ES: {side.title_es || side.name} · PT: {side.title_pt || side.name}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsEditingSide(side);
+                            setNewSide({
+                              name: side.name,
+                              price: side.price || 0,
+                              type: side.type || 'side',
+                              title_en: side.title_en || side.translations?.en?.title || '',
+                              title_es: side.title_es || side.translations?.es?.title || '',
+                              title_pt: side.title_pt || side.translations?.pt?.title || '',
+                            });
+                            setSidePriceInput(side.price > 0 ? side.price.toFixed(2) : '');
+                            setShowSideTranslations(true);
+                            scrollToTop();
+                          }}
+                          className="p-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 cursor-pointer transition-colors"
+                          title="Editar"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteSide(side.id)}
+                          className="p-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 cursor-pointer transition-colors"
+                          title="Excluir"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
 
         {activeTab === 'orders' && (
@@ -7121,12 +7953,6 @@ export default function Admin({
                       </div>
 
                       <div className="space-y-2 text-sm">
-                        {customer.email && (
-                          <div className="flex items-center gap-2 text-gray-700">
-                            <span className="font-bold text-black">E-mail:</span>
-                            <span className="text-black">{customer.email}</span>
-                          </div>
-                        )}
                         {customer.birthday && (() => {
                           const isBdayUpcoming = isBirthdayThisWeek(customer.birthday, customer.orderLanguage);
                           return (
@@ -7188,7 +8014,7 @@ export default function Admin({
       )}
 
       {activeTab === 'pricing' && (
-        <PricingAdmin settings={settings} products={products} />
+        <PricingAdmin settings={settings} products={products} categories={categories} />
       )}
       
       <div className="mt-32 pt-16 pb-32 border-t border-gray-200/40 w-full">
@@ -7348,33 +8174,22 @@ export default function Admin({
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase opacity-60">E-mail</label>
-                    <input 
-                      type="email" 
-                      className="w-full p-3 rounded-xl border border-gray-300"
-                      value={editCustomerForm.email || ''}
-                      onChange={e => setEditCustomerForm({...editCustomerForm, email: e.target.value})}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase opacity-60">Aniversário (Mês/Dia)</label>
-                    <input 
-                      type="text" 
-                      className="w-full p-3 rounded-xl border border-gray-300"
-                      value={editCustomerForm.birthday || ''}
-                      placeholder="MM/DD"
-                      onChange={e => {
-                        let val = e.target.value.replace(/\D/g, '');
-                        if (val.length > 4) val = val.slice(0, 4);
-                        if (val.length > 2) {
-                          val = val.slice(0, 2) + '/' + val.slice(2);
-                        }
-                        setEditCustomerForm({...editCustomerForm, birthday: val});
-                      }}
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase opacity-60">Aniversário (Mês/Dia)</label>
+                  <input 
+                    type="text" 
+                    className="w-full p-3 rounded-xl border border-gray-300"
+                    value={editCustomerForm.birthday || ''}
+                    placeholder="MM/DD"
+                    onChange={e => {
+                      let val = e.target.value.replace(/\D/g, '');
+                      if (val.length > 4) val = val.slice(0, 4);
+                      if (val.length > 2) {
+                        val = val.slice(0, 2) + '/' + val.slice(2);
+                      }
+                      setEditCustomerForm({...editCustomerForm, birthday: val});
+                    }}
+                  />
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="md:col-span-2 space-y-2">
@@ -7480,33 +8295,22 @@ export default function Admin({
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase opacity-60">E-mail</label>
-                    <input 
-                      type="email" 
-                      className="w-full p-3 rounded-xl border border-gray-300 bg-white text-black"
-                      value={newCustomerForm.email || ''}
-                      onChange={e => setNewCustomerForm({...newCustomerForm, email: e.target.value})}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase opacity-60">Aniversário (Mês/Dia)</label>
-                    <input 
-                      type="text" 
-                      className="w-full p-3 rounded-xl border border-gray-300 bg-white text-black"
-                      value={newCustomerForm.birthday || ''}
-                      placeholder="MM/DD"
-                      onChange={e => {
-                        let val = e.target.value.replace(/\D/g, '');
-                        if (val.length > 4) val = val.slice(0, 4);
-                        if (val.length > 2) {
-                          val = val.slice(0, 2) + '/' + val.slice(2);
-                        }
-                        setNewCustomerForm({...newCustomerForm, birthday: val});
-                      }}
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase opacity-60">Aniversário (Mês/Dia)</label>
+                  <input 
+                    type="text" 
+                    className="w-full p-3 rounded-xl border border-gray-300 bg-white text-black"
+                    value={newCustomerForm.birthday || ''}
+                    placeholder="MM/DD"
+                    onChange={e => {
+                      let val = e.target.value.replace(/\D/g, '');
+                      if (val.length > 4) val = val.slice(0, 4);
+                      if (val.length > 2) {
+                        val = val.slice(0, 2) + '/' + val.slice(2);
+                      }
+                      setNewCustomerForm({...newCustomerForm, birthday: val});
+                    }}
+                  />
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="md:col-span-2 space-y-2">
@@ -7601,15 +8405,6 @@ export default function Admin({
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase opacity-60">Email</label>
-                    <input 
-                      type="email" 
-                      className="w-full p-3 rounded-xl border border-gray-300"
-                      value={editOrderForm.email || ''}
-                      onChange={e => setEditOrderForm({...editOrderForm, email: e.target.value})}
-                    />
-                  </div>
-                   <div className="space-y-2">
                     <label className="text-xs font-bold uppercase opacity-60">Aniversário (Mês/Dia)</label>
                     <input 
                       type="text" 
@@ -8164,7 +8959,7 @@ export default function Admin({
                           }}
                         >
                           <span className="font-bold text-sm text-black">{c.name}</span>
-                          <span className="text-xs text-gray-500">{c.phone} {c.email ? `| ${c.email}` : ''}</span>
+                          {c.phone && <span className="text-xs text-gray-500">{c.phone}</span>}
                         </button>
                       ))}
                     </div>
@@ -8198,33 +8993,22 @@ export default function Admin({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase opacity-60">E-mail</label>
-                    <input 
-                      type="email" 
-                      className="w-full p-3 rounded-xl border border-gray-300 bg-white text-black"
-                      value={manualOrderForm.email || ''}
-                      onChange={e => setManualOrderForm({...manualOrderForm, email: e.target.value})}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase opacity-60">Aniversário (Mês/Dia)</label>
-                    <input 
-                      type="text" 
-                      placeholder="MM/DD"
-                      className="w-full p-3 rounded-xl border border-gray-300 bg-white text-black"
-                      value={manualOrderForm.birthday || ''}
-                      onChange={e => {
-                        let val = e.target.value.replace(/\D/g, '');
-                        if (val.length > 4) val = val.slice(0, 4);
-                        if (val.length > 2) {
-                          val = val.slice(0, 2) + '/' + val.slice(2);
-                        }
-                        setManualOrderForm({...manualOrderForm, birthday: val});
-                      }}
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase opacity-60">Aniversário (Mês/Dia)</label>
+                  <input 
+                    type="text" 
+                    placeholder="MM/DD"
+                    className="w-full p-3 rounded-xl border border-gray-300 bg-white text-black"
+                    value={manualOrderForm.birthday || ''}
+                    onChange={e => {
+                      let val = e.target.value.replace(/\D/g, '');
+                      if (val.length > 4) val = val.slice(0, 4);
+                      if (val.length > 2) {
+                        val = val.slice(0, 2) + '/' + val.slice(2);
+                      }
+                      setManualOrderForm({...manualOrderForm, birthday: val});
+                    }}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -8701,9 +9485,11 @@ export default function Admin({
                     Histórico do Cliente
                   </span>
                   <h3 className="text-2xl font-serif font-bold text-black">{viewingCustomerOrders.name}</h3>
-                  <p className="text-sm opacity-60">
-                    {viewingCustomerOrders.phone} | {viewingCustomerOrders.email || 'Sem e-mail'}
-                  </p>
+                  {viewingCustomerOrders.phone && (
+                    <p className="text-sm opacity-60">
+                      {viewingCustomerOrders.phone}
+                    </p>
+                  )}
                 </div>
                 <button 
                   onClick={() => setViewingCustomerOrders(null)} 
