@@ -467,12 +467,13 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.94, opacity: 0, y: 18 }}
             transition={{ type: 'spring', stiffness: 320, damping: 28 }}
-            className="relative w-full max-w-2xl backdrop-blur-2xl rounded-[32px] shadow-[0_32px_90px_rgba(0,0,0,0.28)] border overflow-hidden flex flex-col max-h-[92vh]"
+            className="relative w-full max-w-2xl totem-modal-enlarged backdrop-blur-2xl rounded-[32px] shadow-[0_32px_90px_rgba(0,0,0,0.28)] border overflow-hidden flex flex-col max-h-[92vh]"
             style={{
               backgroundColor: theme.modalBg,
               borderColor: theme.primaryBorder,
               color: theme.text,
-            }}
+              '--totem-base-max-w': '42rem',
+            } as React.CSSProperties}
           >
             {/* Header Bar */}
             {step !== 'success' && (
@@ -1473,12 +1474,13 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
                   animate={{ scale: 1, opacity: 1 }}
                   exit={{ scale: 0.94, opacity: 0 }}
                   onClick={(e) => e.stopPropagation()}
-                  className="rounded-3xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border"
+                  className="rounded-3xl max-w-3xl w-full totem-modal-enlarged max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border"
                   style={{
                     backgroundColor: theme.modalBg,
                     borderColor: theme.primaryBorder,
                     color: theme.text,
-                  }}
+                    '--totem-base-max-w': '48rem',
+                  } as React.CSSProperties}
                 >
                   <div className="px-6 py-4 border-b flex items-center justify-between" style={{ borderColor: theme.primaryBorder }}>
                     <div>

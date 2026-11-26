@@ -138,12 +138,13 @@ export const InactivityGuard: React.FC<InactivityGuardProps> = ({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.92, opacity: 0, y: 16 }}
             transition={{ type: 'spring', stiffness: 320, damping: 26 }}
-            className="relative w-full max-w-md backdrop-blur-2xl rounded-[32px] p-8 shadow-2xl border text-center space-y-6"
+            className="relative w-full max-w-md totem-modal-enlarged backdrop-blur-2xl rounded-[32px] p-8 shadow-2xl border text-center space-y-6"
             style={{
               backgroundColor: theme.modalBg,
               borderColor: theme.primaryBorder,
               color: theme.text,
-            }}
+              '--totem-base-max-w': '28rem',
+            } as React.CSSProperties}
           >
             <div
               className="mx-auto w-20 h-20 rounded-full shadow-inner border flex flex-col items-center justify-center"

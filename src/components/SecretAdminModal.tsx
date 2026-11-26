@@ -65,12 +65,13 @@ export const SecretAdminModal: React.FC<SecretAdminModalProps> = ({
             initial={{ scale: 0.92, opacity: 0, y: 12 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.92, opacity: 0, y: 12 }}
-            className="relative w-full max-w-sm backdrop-blur-2xl rounded-[30px] p-7 shadow-2xl border space-y-6"
+            className="relative w-full max-w-sm totem-modal-enlarged backdrop-blur-2xl rounded-[30px] p-7 shadow-2xl border space-y-6"
             style={{
               backgroundColor: theme.modalBg,
               borderColor: theme.primaryBorder,
               color: theme.text,
-            }}
+              '--totem-base-max-w': '24rem',
+            } as React.CSSProperties}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">

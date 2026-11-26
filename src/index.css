@@ -67,3 +67,24 @@ h1, h2, h3, h4, h5, h6 {
 .force-dark-headings h6 {
   color: var(--modal-heading-color, var(--text-color, #000000));
 }
+
+/* Totem-only +65% modal enlargement (never applied to Mobile /order) */
+.totem-modal-enlarged {
+  --totem-zoom: 1.18;
+  zoom: var(--totem-zoom);
+  max-height: calc(92vh / var(--totem-zoom)) !important;
+  max-width: min(var(--totem-base-max-w, 42rem), calc(94vw / var(--totem-zoom))) !important;
+}
+
+@media (min-width: 640px) {
+  .totem-modal-enlarged {
+    --totem-zoom: 1.38;
+  }
+}
+
+@media (min-width: 900px) {
+  .totem-modal-enlarged {
+    --totem-zoom: 1.65;
+  }
+}
+

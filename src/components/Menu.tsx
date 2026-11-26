@@ -2272,37 +2272,8 @@ export default function Menu({
         </div>
       )}
 
-      {/* Circular Logo — 5 rapid taps open Secret Admin/KDS/Cashier modal (Totem mode only) */}
-      <div className={`${isMobilePickup ? 'mt-2' : 'mt-8'} mb-4 relative`}>
-        <div 
-          onClick={handleLogoTap}
-          className="w-[160px] h-[160px] rounded-full p-1 shadow-md flex items-center justify-center overflow-hidden border-2 cursor-default"
-          style={{ borderColor: theme.primary, backgroundColor: theme.cardBgSolid }}
-        >
-          <img 
-            src={
-              selectedCatalog === 'catalog1'
-                ? (settings.catalog1Image || 'https://i.ibb.co/X0vYy7L/cakes.png')
-                : selectedCatalog === 'catalog2'
-                  ? (settings.catalog2Image || 'https://i.ibb.co/68XwD57/meals.png')
-                  : selectedCatalog === 'catalog3'
-                    ? (settings.catalog3Image || settings.logo || 'https://i.ibb.co/X0vYy7L/cakes.png')
-                    : selectedCatalog === 'catalog4'
-                      ? (settings.catalog4Image || settings.logo || 'https://i.ibb.co/X0vYy7L/cakes.png')
-                      : (settings.logo || 'https://i.ibb.co/1t0DZbPG/patitour-2026-06-05-T085539-099.png')
-            } 
-            alt="Logo" 
-            className="w-full h-full object-cover rounded-full pointer-events-none"
-            referrerPolicy="no-referrer"
-          />
-        </div>
-      </div>
-
-      <h1 className="text-3xl sm:text-4xl font-serif font-bold mb-10 text-center tracking-tight" style={{ color: theme.brandText }}>
-        {renderTitle(settings.introTitle || settings.brandName || 'Easy Kioski')}
-      </h1>
-
-      {(() => {
+      {/* TOTEM MODE ONLY: Entire Top Header (Logo + Brand Name + Slogan + Centered Category Menu) stays 100% static while products scroll underneath */}
+      {!isMobilePickup ? (() => {
         const localizedCatalog1Slogan =
           activeLanguage === 'es'
             ? settings.catalog1Slogan_es || settings.slogan_es
@@ -2330,7 +2301,7 @@ export default function Menu({
           localizedCatalog1Desc?.trim() ||
           (isDefaultCraftedSlogan ? fallbackTranslatedSlogan : rawCatalog1Slogan);
 
-        const text = selectedCatalog === 'catalog1'
+        const sloganText = selectedCatalog === 'catalog1'
           ? resolvedCatalog1Text
           : selectedCatalog === 'catalog2'
             ? (settings.catalog2Slogan || settings.catalog2Desc || localizedCatalog1Slogan || settings.slogan || '')
@@ -2340,41 +2311,10 @@ export default function Menu({
                 ? (settings.catalog4Slogan || settings.catalog4Desc || localizedCatalog1Slogan || settings.slogan || '')
                 : (resolvedCatalog1Text || fallbackTranslatedSlogan);
 
-        if (selectedCatalog) {
-          const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-          if (lines.length > 0) {
-            return (
-              <div
-                className="flex flex-col items-center mb-12 max-w-sm mx-auto backdrop-blur-md p-5 rounded-[2rem] border shadow-md"
-                style={{
-                  backgroundColor: theme.cardBg,
-                  borderColor: theme.primaryBorder,
-                }}
-              >
-                <ul className="text-left space-y-2.5 text-xs font-sans font-semibold" style={{ color: theme.text }}>
-                  {lines.map((line, idx) => (
-                    <li key={idx} className="flex items-start gap-2">
-                      <span className="shrink-0 select-none mt-0.5" style={{ color: theme.primary }}>✦</span>
-                      <span>{line}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          }
-        }
+        const sloganLines = selectedCatalog
+          ? sloganText.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+          : [];
 
-        return (
-          <p className="font-medium mb-12 text-center whitespace-pre-wrap max-w-md mx-auto" style={{ color: theme.text }}>
-            {text}
-          </p>
-        );
-      })()}
-
-
-
-      {/* Sticky Centered Category Menu — Below Brand Name & Slogan (Totem Mode ONLY) */}
-      {!isMobilePickup && (() => {
         const activeCategories = filteredCategories
           .filter((cat) =>
             localizedProducts.some((p) => p.categoryId === cat.id && p.isActive !== false)
@@ -2382,55 +2322,226 @@ export default function Menu({
           .sort((a, b) =>
             (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' })
           );
-        if (activeCategories.length === 0) return null;
 
         const categoryRows: typeof activeCategories[] = [];
         for (let i = 0; i < activeCategories.length; i += 5) {
           categoryRows.push(activeCategories.slice(i, i + 5));
         }
 
+        const logoSrc =
+          selectedCatalog === 'catalog1'
+            ? (settings.catalog1Image || 'https://i.ibb.co/X0vYy7L/cakes.png')
+            : selectedCatalog === 'catalog2'
+              ? (settings.catalog2Image || 'https://i.ibb.co/68XwD57/meals.png')
+              : selectedCatalog === 'catalog3'
+                ? (settings.catalog3Image || settings.logo || 'https://i.ibb.co/X0vYy7L/cakes.png')
+                : selectedCatalog === 'catalog4'
+                  ? (settings.catalog4Image || settings.logo || 'https://i.ibb.co/X0vYy7L/cakes.png')
+                  : (settings.logo || 'https://i.ibb.co/1t0DZbPG/patitour-2026-06-05-T085539-099.png');
+
         return (
-          <div ref={totemStickyHeaderRef} className="sticky top-3 z-30 w-full max-w-5xl xl:max-w-6xl mb-8">
-            <div
-              className="flex flex-col items-center gap-2 p-2.5 rounded-2xl backdrop-blur-xl border shadow-sm"
-              style={{
-                backgroundColor: theme.pillBg,
-                borderColor: theme.primaryBorder,
-              }}
-            >
-              {categoryRows.map((row, rowIdx) => (
+          <div
+            ref={totemStickyHeaderRef}
+            className="sticky top-0 z-30 w-[calc(100%+2rem)] -mx-4 -mt-4 px-4 pt-4 pb-3 mb-6 backdrop-blur-xl border-b shadow-sm"
+            style={{
+              backgroundColor: theme.modalBg,
+              borderColor: theme.primaryBorder,
+            }}
+          >
+            <div className="max-w-5xl xl:max-w-6xl mx-auto flex flex-col items-center">
+              {/* Circular Logo — 5 rapid taps open Secret Admin/KDS/Cashier modal */}
+              <div className="mb-3 relative">
                 <div
-                  key={rowIdx}
-                  className="flex flex-wrap items-center justify-center gap-2.5 w-full"
+                  onClick={handleLogoTap}
+                  className="w-[256px] h-[256px] sm:w-[280px] sm:h-[280px] rounded-full p-1.5 shadow-md flex items-center justify-center overflow-hidden border-2 cursor-default"
+                  style={{ borderColor: theme.primary, backgroundColor: theme.cardBgSolid }}
                 >
-                  {row.map((cat) => (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => {
-                        const el = document.getElementById(`menu-cat-${cat.id}`);
-                        if (el) {
-                          const headerOffset = (totemStickyHeaderRef.current?.offsetHeight || 90) + 24;
-                          const targetTop = el.getBoundingClientRect().top + window.scrollY - headerOffset;
-                          window.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
-                        }
-                      }}
-                      className="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-serif font-bold whitespace-nowrap transition-all cursor-pointer shrink-0 border shadow-xs hover:brightness-110 active:scale-95"
-                      style={{
-                        backgroundColor: theme.primary,
-                        color: '#FFFFFF',
-                        borderColor: theme.primary,
-                      }}
+                  <img
+                    src={logoSrc}
+                    alt="Logo"
+                    className="w-full h-full object-cover rounded-full pointer-events-none"
+                    referrerPolicy="no-referrer"
+                  />
+                </div>
+              </div>
+
+              {/* Brand Title */}
+              <h1
+                className="text-3xl sm:text-4xl font-serif font-bold mb-3 text-center tracking-tight"
+                style={{ color: theme.brandText }}
+              >
+                {renderTitle(settings.introTitle || settings.brandName || 'Easy Kioski')}
+              </h1>
+
+              {/* Slogan Pill */}
+              {selectedCatalog && sloganLines.length > 0 ? (
+                <div
+                  className="flex flex-col items-center mb-4 max-w-md mx-auto backdrop-blur-md px-5 py-3 rounded-[2rem] border shadow-sm"
+                  style={{
+                    backgroundColor: theme.cardBg,
+                    borderColor: theme.primaryBorder,
+                  }}
+                >
+                  <ul className="text-left space-y-1.5 text-xs font-sans font-semibold" style={{ color: theme.text }}>
+                    {sloganLines.map((line, idx) => (
+                      <li key={idx} className="flex items-start gap-2">
+                        <span className="shrink-0 select-none mt-0.5" style={{ color: theme.primary }}>✦</span>
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : sloganText ? (
+                <p className="font-medium mb-4 text-center whitespace-pre-wrap max-w-md mx-auto text-sm" style={{ color: theme.text }}>
+                  {sloganText}
+                </p>
+              ) : null}
+
+              {/* Centered Category Menu — Below Brand Name & Slogan, max 5 per row */}
+              {categoryRows.length > 0 && (
+                <div
+                  className="w-full flex flex-col items-center gap-3 p-3 rounded-2xl border shadow-xs"
+                  style={{
+                    backgroundColor: theme.pillBg,
+                    borderColor: theme.primaryBorder,
+                  }}
+                >
+                  {categoryRows.map((row, rowIdx) => (
+                    <div
+                      key={rowIdx}
+                      className="flex flex-wrap items-center justify-center gap-3.5 w-full"
                     >
-                      {cat.title}
-                    </button>
+                      {row.map((cat) => (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => {
+                            const el = document.getElementById(`menu-cat-${cat.id}`);
+                            if (el) {
+                              const headerOffset = (totemStickyHeaderRef.current?.offsetHeight || 500) + 16;
+                              const targetTop = el.getBoundingClientRect().top + window.scrollY - headerOffset;
+                              window.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+                            }
+                          }}
+                          className="px-7 py-3.5 rounded-2xl text-3xl sm:text-4xl font-serif font-bold tracking-tight leading-tight whitespace-nowrap transition-all cursor-pointer shrink-0 border shadow-xs hover:brightness-110 active:scale-95"
+                          style={{
+                            backgroundColor: theme.primary,
+                            color: '#FFFFFF',
+                            borderColor: theme.primary,
+                          }}
+                        >
+                          {cat.title}
+                        </button>
+                      ))}
+                    </div>
                   ))}
                 </div>
-              ))}
+              )}
             </div>
           </div>
         );
-      })()}
+      })() : (
+        <>
+          {/* MOBILE PICKUP MODE ONLY: Standard scrolling Logo, Brand Name & Slogan */}
+          <div className="mt-2 mb-4 relative">
+            <div 
+              onClick={handleLogoTap}
+              className="w-[160px] h-[160px] rounded-full p-1 shadow-md flex items-center justify-center overflow-hidden border-2 cursor-default"
+              style={{ borderColor: theme.primary, backgroundColor: theme.cardBgSolid }}
+            >
+              <img 
+                src={
+                  selectedCatalog === 'catalog1'
+                    ? (settings.catalog1Image || 'https://i.ibb.co/X0vYy7L/cakes.png')
+                    : selectedCatalog === 'catalog2'
+                      ? (settings.catalog2Image || 'https://i.ibb.co/68XwD57/meals.png')
+                      : selectedCatalog === 'catalog3'
+                        ? (settings.catalog3Image || settings.logo || 'https://i.ibb.co/X0vYy7L/cakes.png')
+                        : selectedCatalog === 'catalog4'
+                          ? (settings.catalog4Image || settings.logo || 'https://i.ibb.co/X0vYy7L/cakes.png')
+                          : (settings.logo || 'https://i.ibb.co/1t0DZbPG/patitour-2026-06-05-T085539-099.png')
+                } 
+                alt="Logo" 
+                className="w-full h-full object-cover rounded-full pointer-events-none"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+          </div>
+
+          <h1 className="text-3xl sm:text-4xl font-serif font-bold mb-10 text-center tracking-tight" style={{ color: theme.brandText }}>
+            {renderTitle(settings.introTitle || settings.brandName || 'Easy Kioski')}
+          </h1>
+
+          {(() => {
+            const localizedCatalog1Slogan =
+              activeLanguage === 'es'
+                ? settings.catalog1Slogan_es || settings.slogan_es
+                : activeLanguage === 'pt'
+                  ? settings.catalog1Slogan_pt || settings.slogan_pt
+                  : settings.catalog1Slogan_en || settings.slogan_en;
+            const localizedCatalog1Desc =
+              activeLanguage === 'es'
+                ? settings.catalog1Desc_es
+                : activeLanguage === 'pt'
+                  ? settings.catalog1Desc_pt
+                  : settings.catalog1Desc_en;
+            const rawCatalog1Slogan = (settings.catalog1Slogan || settings.catalog1Desc || settings.slogan || '').trim();
+            const isDefaultCraftedSlogan =
+              /Crafted fresh to order with artisanal ingredients|Artisanal flavors crafted fresh to order|O sabor que você merece/i.test(rawCatalog1Slogan);
+            const fallbackTranslatedSlogan =
+              activeLanguage === 'es'
+                ? 'Preparado fresco al momento con ingredientes artesanales'
+                : activeLanguage === 'pt'
+                  ? 'Preparado fresco na hora com ingredientes artesanais'
+                  : 'Crafted fresh to order with artisanal ingredients';
+
+            const resolvedCatalog1Text =
+              localizedCatalog1Slogan?.trim() ||
+              localizedCatalog1Desc?.trim() ||
+              (isDefaultCraftedSlogan ? fallbackTranslatedSlogan : rawCatalog1Slogan);
+
+            const text = selectedCatalog === 'catalog1'
+              ? resolvedCatalog1Text
+              : selectedCatalog === 'catalog2'
+                ? (settings.catalog2Slogan || settings.catalog2Desc || localizedCatalog1Slogan || settings.slogan || '')
+                : selectedCatalog === 'catalog3'
+                  ? (settings.catalog3Slogan || settings.catalog3Desc || localizedCatalog1Slogan || settings.slogan || '')
+                  : selectedCatalog === 'catalog4'
+                    ? (settings.catalog4Slogan || settings.catalog4Desc || localizedCatalog1Slogan || settings.slogan || '')
+                    : (resolvedCatalog1Text || fallbackTranslatedSlogan);
+
+            if (selectedCatalog) {
+              const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+              if (lines.length > 0) {
+                return (
+                  <div
+                    className="flex flex-col items-center mb-12 max-w-sm mx-auto backdrop-blur-md p-5 rounded-[2rem] border shadow-md"
+                    style={{
+                      backgroundColor: theme.cardBg,
+                      borderColor: theme.primaryBorder,
+                    }}
+                  >
+                    <ul className="text-left space-y-2.5 text-xs font-sans font-semibold" style={{ color: theme.text }}>
+                      {lines.map((line, idx) => (
+                        <li key={idx} className="flex items-start gap-2">
+                          <span className="shrink-0 select-none mt-0.5" style={{ color: theme.primary }}>✦</span>
+                          <span>{line}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              }
+            }
+
+            return (
+              <p className="font-medium mb-12 text-center whitespace-pre-wrap max-w-md mx-auto" style={{ color: theme.text }}>
+                {text}
+              </p>
+            );
+          })()}
+        </>
+      )}
 
       <div
         className={`w-full space-y-12 ${
@@ -2587,13 +2698,17 @@ export default function Menu({
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-lg rounded-t-[32px] sm:rounded-[32px] border shadow-2xl overflow-hidden flex flex-col max-h-[92vh] font-sans"
+              className={cn(
+                "relative w-full max-w-lg rounded-t-[32px] sm:rounded-[32px] border shadow-2xl overflow-hidden flex flex-col max-h-[92vh] font-sans",
+                !isMobilePickup && "totem-modal-enlarged"
+              )}
               style={{ 
                 backgroundColor: theme.modalBg,
                 borderColor: theme.primaryBorder,
                 color: theme.text,
                 '--text-color': theme.text,
-                '--modal-heading-color': theme.text
+                '--modal-heading-color': theme.text,
+                '--totem-base-max-w': '32rem',
               } as any}
             >
               {/* Header do Modal com Título e Fechar (X) */}
@@ -2639,10 +2754,8 @@ export default function Menu({
                 {/* Imagem do Produto (sempre com cantos arredondados harmoniosos) */}
                 <div
                   className={cn(
-                    'rounded-2xl overflow-hidden shadow-sm border flex items-center justify-center',
-                    isMobilePickup
-                      ? 'w-full max-w-[360px] mx-auto aspect-square'
-                      : 'w-full aspect-[16/10]'
+                    'rounded-2xl overflow-hidden shadow-sm border flex items-center justify-center w-full mx-auto aspect-square',
+                    isMobilePickup ? 'max-w-[360px]' : 'max-w-[340px]'
                   )}
                   style={{
                     backgroundColor: theme.cardBgSolid,
@@ -3397,12 +3510,16 @@ export default function Menu({
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-lg rounded-[2.5rem] border shadow-2xl overflow-hidden flex flex-col max-h-[90vh] force-dark-headings"
+              className={cn(
+                "relative w-full max-w-lg rounded-[2.5rem] border shadow-2xl overflow-hidden flex flex-col max-h-[90vh] force-dark-headings",
+                !isMobilePickup && "totem-modal-enlarged"
+              )}
               style={{
                 backgroundColor: theme.modalBg,
                 borderColor: theme.primaryBorder,
                 color: theme.text,
-              }}
+                '--totem-base-max-w': '32rem',
+              } as React.CSSProperties}
             >
               <div
                 className="p-6 border-b flex items-center justify-between"

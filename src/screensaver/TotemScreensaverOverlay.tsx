@@ -26,13 +26,14 @@ export const TotemScreensaverOverlay: React.FC<TotemScreensaverOverlayProps> = (
   const [currentIndex, setCurrentIndex] = useState(0);
   const idleTimerRef = useRef<number | null>(null);
   const lastMoveResetRef = useRef<number>(0);
+  const lastMousePosRef = useRef<{ x: number; y: number } | null>(null);
 
   const isFeatureOn = enabled && Boolean(settings.screensaverEnabled);
-  const idleSeconds = Math.max(10, Number(settings.screensaverIdleSeconds || settings.kioskInactivitySeconds || 45));
+  const idleSeconds = Math.max(5, Number(settings.screensaverIdleSeconds || settings.kioskInactivitySeconds || 45));
   const intervalSeconds = Math.max(3, Number(settings.screensaverIntervalSeconds || 6));
   const theme = getBrandTheme(settings);
 
-  // Subscribe to separate totem_screensaver Firestore collection
+  // Subscribe to separate totem_screensaver documents
   useEffect(() => {
     if (!enabled) {
       setSlides([]);
@@ -70,7 +71,13 @@ export const TotemScreensaverOverlay: React.FC<TotemScreensaverOverlayProps> = (
       scheduleIdle();
     };
 
-    const handleMouseMove = () => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isActive) return;
+      const prev = lastMousePosRef.current;
+      if (prev && Math.hypot(e.clientX - prev.x, e.clientY - prev.y) < 14) {
+        return;
+      }
+      lastMousePosRef.current = { x: e.clientX, y: e.clientY };
       const now = Date.now();
       if (now - lastMoveResetRef.current < 1500) return;
       lastMoveResetRef.current = now;

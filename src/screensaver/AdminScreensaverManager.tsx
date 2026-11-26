@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Clock, Image as ImageIcon, Loader2, MonitorPlay, Trash2, Upload } from 'lucide-react';
+import { doc, setDoc } from 'firebase/firestore';
+import { Clock, Eye, Image as ImageIcon, Loader2, MonitorPlay, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { db } from '../firebase';
 import { Settings } from '../types';
 import {
   compressScreensaverImage,
@@ -23,15 +25,44 @@ export const AdminScreensaverManager: React.FC<AdminScreensaverManagerProps> = (
   const [slides, setSlides] = useState<ScreensaverSlide[]>([]);
   const [uploadingSlot, setUploadingSlot] = useState<number | null>(null);
   const [deletingSlot, setDeletingSlot] = useState<number | null>(null);
+  const [savingToggle, setSavingToggle] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 
   useEffect(() => {
     const unsub = subscribeTotemScreensaverSlides(setSlides);
     return () => unsub();
   }, []);
 
+  // Auto-advance preview slideshow when testing
+  useEffect(() => {
+    if (previewIndex === null || slides.length <= 1) return;
+    const intervalSec = Math.max(3, Number(settings?.screensaverIntervalSeconds || 6));
+    const timer = window.setInterval(() => {
+      setPreviewIndex((prev) => (prev === null ? null : (prev + 1) % slides.length));
+    }, intervalSec * 1000);
+    return () => window.clearInterval(timer);
+  }, [previewIndex, slides.length, settings?.screensaverIntervalSeconds]);
+
   const totalKb = Math.round(
     slides.reduce((acc, s) => acc + (s.sizeBytes || 0), 0) / 1024
   );
+
+  const persistScreensaverPrefs = async (
+    patch: Partial<Pick<Settings, 'screensaverEnabled' | 'screensaverIdleSeconds' | 'screensaverIntervalSeconds'>>,
+    successToast?: string
+  ) => {
+    setSettings((prev) => ({ ...prev, ...patch }));
+    setSavingToggle(true);
+    try {
+      await setDoc(doc(db, 'configuracoes', 'geral'), patch, { merge: true });
+      if (successToast) toast.success(successToast);
+    } catch (err) {
+      console.error('Erro ao salvar preferência da tela de descanso:', err);
+      toast.error('Erro ao salvar configuração da tela de descanso.');
+    } finally {
+      setSavingToggle(false);
+    }
+  };
 
   const handleUploadSlot = async (
     slot: number,
@@ -47,7 +78,7 @@ export const AdminScreensaverManager: React.FC<AdminScreensaverManagerProps> = (
       await saveScreensaverSlide(slot, compressed);
       const kb = Math.max(1, Math.round(compressed.sizeBytes / 1024));
       toast.success(
-        `Imagem ${slot} compactada (${kb} KB · ${compressed.format.toUpperCase()}) e salva na pasta da Tela de Descanso!`
+        `Imagem ${slot} compactada (${kb} KB · ${compressed.format.toUpperCase()}) e salva!`
       );
     } catch (err: any) {
       console.error('Erro ao salvar imagem da tela de descanso:', err);
@@ -72,6 +103,7 @@ export const AdminScreensaverManager: React.FC<AdminScreensaverManagerProps> = (
   };
 
   const slots = Array.from({ length: SCREENSAVER_MAX_SLOTS }, (_, idx) => idx + 1);
+  const previewSlide = previewIndex !== null ? slides[previewIndex % Math.max(1, slides.length)] : null;
 
   return (
     <div className="p-5 rounded-2xl bg-stone-50 border border-stone-200 space-y-4">
@@ -84,21 +116,45 @@ export const AdminScreensaverManager: React.FC<AdminScreensaverManagerProps> = (
             <MonitorPlay size={18} /> Tela de Descanso do Totem (5 Imagens 1080 × 1350)
           </h4>
           <p className="text-xs text-stone-600 mt-0.5">
-            Exibe suas imagens em tela cheia quando ninguém estiver usando o Totem. As imagens são compactadas automaticamente em WebP ultraleve e salvas em uma coleção separada para não ocupar espaço nas configurações gerais.
+            Exibe suas imagens em tela cheia quando ninguém estiver usando o Totem. As imagens são compactadas automaticamente em WebP ultraleve e salvas separadamente para não pesar nas configurações gerais.
           </p>
         </div>
 
-        <label className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-white border border-stone-200 cursor-pointer shrink-0 select-none">
-          <span className="text-xs font-bold text-stone-900">Ativar Tela de Descanso</span>
-          <input
-            type="checkbox"
-            checked={Boolean(settings?.screensaverEnabled)}
-            onChange={(e) =>
-              setSettings((prev) => ({ ...prev, screensaverEnabled: e.target.checked }))
-            }
-            className="w-5 h-5 accent-stone-900 cursor-pointer"
-          />
-        </label>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {slides.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setPreviewIndex(0)}
+              className="px-3.5 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <Eye size={14} /> Testar Agora
+            </button>
+          )}
+
+          <label className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-white border border-stone-200 cursor-pointer select-none">
+            <span className="text-xs font-bold text-stone-900">
+              {savingToggle ? 'Salvando...' : 'Ativar Tela de Descanso'}
+            </span>
+            <input
+              type="checkbox"
+              checked={Boolean(settings?.screensaverEnabled)}
+              onChange={(e) => {
+                const next = e.target.checked;
+                persistScreensaverPrefs(
+                  {
+                    screensaverEnabled: next,
+                    screensaverIdleSeconds: Math.max(5, Number(settings?.screensaverIdleSeconds || 45)),
+                    screensaverIntervalSeconds: Math.max(3, Number(settings?.screensaverIntervalSeconds || 6)),
+                  },
+                  next
+                    ? 'Tela de Descanso ativada e salva no Totem!'
+                    : 'Tela de Descanso desativada no Totem.'
+                );
+              }}
+              className="w-5 h-5 accent-stone-900 cursor-pointer"
+            />
+          </label>
+        </div>
       </div>
 
       {/* Timings + Compact Storage Summary */}
@@ -109,15 +165,19 @@ export const AdminScreensaverManager: React.FC<AdminScreensaverManagerProps> = (
           </label>
           <input
             type="number"
-            min="10"
+            min="5"
             max="600"
             value={settings?.screensaverIdleSeconds ?? 45}
             onChange={(e) =>
               setSettings((prev) => ({
                 ...prev,
-                screensaverIdleSeconds: Math.max(10, parseInt(e.target.value, 10) || 45),
+                screensaverIdleSeconds: Math.max(5, parseInt(e.target.value, 10) || 45),
               }))
             }
+            onBlur={(e) => {
+              const val = Math.max(5, parseInt(e.target.value, 10) || 45);
+              persistScreensaverPrefs({ screensaverIdleSeconds: val });
+            }}
             className="w-full p-2.5 rounded-xl border border-stone-300 bg-white text-sm font-bold text-stone-900"
           />
         </div>
@@ -137,16 +197,21 @@ export const AdminScreensaverManager: React.FC<AdminScreensaverManagerProps> = (
                 screensaverIntervalSeconds: Math.max(3, parseInt(e.target.value, 10) || 6),
               }))
             }
+            onBlur={(e) => {
+              const val = Math.max(3, parseInt(e.target.value, 10) || 6);
+              persistScreensaverPrefs({ screensaverIntervalSeconds: val });
+            }}
             className="w-full p-2.5 rounded-xl border border-stone-300 bg-white text-sm font-bold text-stone-900"
           />
         </div>
 
         <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200 flex flex-col justify-center">
           <span className="text-[10px] font-black uppercase tracking-wider text-emerald-800">
-            Espaço Compactado (Pasta Separada)
+            Status & Espaço Compactado
           </span>
           <p className="text-xs font-bold text-emerald-950 mt-0.5">
-            {slides.length} / {SCREENSAVER_MAX_SLOTS} imagens · {totalKb} KB no total
+            {slides.length} / {SCREENSAVER_MAX_SLOTS} imagens · {totalKb} KB ·{' '}
+            {settings?.screensaverEnabled && slides.length > 0 ? 'Ativo no Totem' : 'Inativo'}
           </p>
         </div>
       </div>
@@ -218,8 +283,27 @@ export const AdminScreensaverManager: React.FC<AdminScreensaverManagerProps> = (
       </div>
 
       <p className="text-[11px] text-stone-500">
-        As imagens sobem na hora para a pasta separada (<strong className="font-mono">totem_screensaver</strong>). Lembre-se de clicar em <strong>Salvar Configurações</strong> após ativar a opção ou alterar os tempos.
+        Dica: para testar rapidamente no Totem, você pode colocar <strong>10 segundos</strong> de inatividade ou clicar em <strong>Testar Agora</strong> acima.
       </p>
+
+      {/* Instant Fullscreen Preview Modal inside Admin */}
+      {previewSlide && (
+        <div
+          onClick={() => setPreviewIndex(null)}
+          className="fixed inset-0 z-[120] bg-black flex items-center justify-center cursor-pointer select-none"
+        >
+          <img
+            src={previewSlide.image}
+            alt={`Prévia Slide ${previewSlide.slot}`}
+            className="w-full h-full object-cover"
+          />
+          <div className="pointer-events-none fixed inset-x-0 bottom-8 flex flex-col items-center gap-3 px-4">
+            <div className="px-6 py-3 rounded-full bg-black/75 border border-white/25 text-white text-sm font-bold shadow-2xl">
+              Prévia da Tela de Descanso (Slide {previewSlide.slot}) · Clique em qualquer lugar para fechar
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
