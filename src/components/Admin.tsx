@@ -12,7 +12,7 @@ import {
   ArrowUp, ArrowDown, MessageCircle, MessageSquare, Calendar, Printer, Cake, Eye, EyeOff, ArrowLeft,
   DollarSign, Coins, ChevronDown, ChevronUp, Users, Download, Truck, Search, Info, Table, ShoppingBag, Calculator,
   MapPin, Navigation, ArrowUpDown, Lock, ChefHat, CreditCard, DatabaseBackup, Clock, Percent, Monitor,
-  Globe, Sparkles, Smartphone, QrCode, KeyRound, Code2, RefreshCw
+  Globe, Sparkles, Smartphone, QrCode, KeyRound, Code2, RefreshCw, Camera, ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -34,12 +34,18 @@ import {
   translateSingleItemAllLanguages,
 } from '../services/catalogTranslationService';
 import {
+  buildTotemQrTestUrl,
   generateGoogleAppsScriptCode,
   generateSecureWebhookSecret,
   sanitizeCashAppTag,
   sanitizePaypalUsername,
   sanitizeVenmoUsername,
+  TotemQrOnlyMethod,
 } from '../services/appsScriptGenerator';
+import {
+  decodeQrCodeFromImageFile,
+  resolveAndExtractWalletFromQrPayload,
+} from '../utils/qrCodeReader';
 import { printDualOrderReceipts, triggerBrowserIframePrint } from '../services/printService';
 import { formatMoney } from '../utils/kioskI18n';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -203,6 +209,123 @@ export default function Admin({
   const [isTranslatingMainMenu, setIsTranslatingMainMenu] = useState(false);
   const [showMainMenuTranslations, setShowMainMenuTranslations] = useState(false);
   const [showAppsScriptCode, setShowAppsScriptCode] = useState(false);
+  const [scanningQrMethod, setScanningQrMethod] = useState<TotemQrOnlyMethod | null>(null);
+  const [qrScanFeedback, setQrScanFeedback] = useState<
+    Partial<Record<TotemQrOnlyMethod, { status: 'success' | 'warning' | 'error'; message: string }>>
+  >({});
+
+  const sanitizeWalletByMethod = (method: TotemQrOnlyMethod, raw: string): string => {
+    if (method === 'venmo') return sanitizeVenmoUsername(raw);
+    if (method === 'paypal') return sanitizePaypalUsername(raw);
+    return sanitizeCashAppTag(raw);
+  };
+
+  const getWalletFieldKey = (method: TotemQrOnlyMethod): 'venmoUsername' | 'paypalMeUsername' | 'cashAppTag' => {
+    if (method === 'venmo') return 'venmoUsername';
+    if (method === 'paypal') return 'paypalMeUsername';
+    return 'cashAppTag';
+  };
+
+  const getWalletDisplayName = (method: TotemQrOnlyMethod): string => {
+    if (method === 'venmo') return 'Venmo';
+    if (method === 'paypal') return 'PayPal';
+    return 'Cash App';
+  };
+
+  const handleWalletInputChange = (method: TotemQrOnlyMethod, rawValue: string) => {
+    const fieldKey = getWalletFieldKey(method);
+    const looksLikeUrl = /https?:\/\/|venmo:\/\/|(?:venmo|paypal)\.com\/|paypal\.me\/|cash\.(?:app|me)\//i.test(rawValue);
+    if (looksLikeUrl) {
+      const extracted = sanitizeWalletByMethod(method, rawValue);
+      if (extracted) {
+        setSettings((prev) => ({ ...prev, [fieldKey]: extracted }));
+        setQrScanFeedback((prev) => ({
+          ...prev,
+          [method]: {
+            status: 'success',
+            message: `Link reconhecido! Usuário extraído automaticamente: ${extracted}`,
+          },
+        }));
+        toast.success(`Usuário do ${getWalletDisplayName(method)} extraído do link: ${extracted}`);
+        return;
+      }
+    }
+    setSettings((prev) => ({ ...prev, [fieldKey]: rawValue }));
+  };
+
+  const handleWalletInputBlur = (method: TotemQrOnlyMethod) => {
+    const fieldKey = getWalletFieldKey(method);
+    const current = settings?.[fieldKey] ?? '';
+    const cleaned = sanitizeWalletByMethod(method, current);
+    if (cleaned !== current) {
+      setSettings((prev) => ({ ...prev, [fieldKey]: cleaned }));
+    }
+  };
+
+  const handleQrCodeImageUpload = async (
+    expectedMethod: TotemQrOnlyMethod,
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const inputEl = event.target;
+    const file = inputEl.files?.[0];
+    if (!file) return;
+
+    setScanningQrMethod(expectedMethod);
+    setQrScanFeedback((prev) => ({ ...prev, [expectedMethod]: undefined }));
+
+    try {
+      const decodedText = await decodeQrCodeFromImageFile(file);
+      if (!decodedText) {
+        const errorMsg =
+          'Não foi possível ler um QR Code nítido nesta imagem. Tente enviar o print ou imagem original do QR Code sem cortes.';
+        setQrScanFeedback((prev) => ({
+          ...prev,
+          [expectedMethod]: { status: 'error', message: errorMsg },
+        }));
+        toast.error(errorMsg);
+        return;
+      }
+
+      const parsed = await resolveAndExtractWalletFromQrPayload(decodedText, expectedMethod);
+      const targetMethod = parsed.detectedProvider || expectedMethod;
+
+      if (parsed.username) {
+        const fieldKey = getWalletFieldKey(targetMethod);
+        setSettings((prev) => ({ ...prev, [fieldKey]: parsed.username! }));
+
+        const successMsg =
+          targetMethod !== expectedMethod
+            ? `QR Code do ${getWalletDisplayName(targetMethod)} lido com sucesso! Usuário "${parsed.username}" preenchido automaticamente. Clique em "Testar Link" e salve.`
+            : `QR Code lido com sucesso! Usuário "${parsed.username}" confirmado. Clique em "Testar Link" para verificar e depois em Salvar.`;
+
+        setQrScanFeedback((prev) => ({
+          ...prev,
+          [targetMethod]: { status: 'success', message: successMsg },
+        }));
+        toast.success(`QR Code lido com sucesso! ${getWalletDisplayName(targetMethod)}: ${parsed.username}`);
+      } else {
+        const warnMsg =
+          parsed.warning ||
+          'QR Code lido, mas não encontramos o usuário na URL. Digite seu usuário manualmente e clique em "Testar Link".';
+        setQrScanFeedback((prev) => ({
+          ...prev,
+          [expectedMethod]: { status: 'warning', message: warnMsg },
+        }));
+        toast.warning(warnMsg, { duration: 7000 });
+      }
+    } catch (err) {
+      console.error('Erro ao ler imagem de QR Code:', err);
+      const errorMsg = 'Erro ao processar a imagem enviada. Verifique se é um arquivo PNG, JPG ou WEBP válido.';
+      setQrScanFeedback((prev) => ({
+        ...prev,
+        [expectedMethod]: { status: 'error', message: errorMsg },
+      }));
+      toast.error(errorMsg);
+    } finally {
+      setScanningQrMethod(null);
+      inputEl.value = '';
+    }
+  };
   const [isTranslatingProduct, setIsTranslatingProduct] = useState(false);
   const [isTranslatingCategory, setIsTranslatingCategory] = useState(false);
   const [isBulkTranslating, setIsBulkTranslating] = useState(false);
@@ -981,8 +1104,15 @@ export default function Admin({
         setTimeout(() => reject(new Error('Timeout')), 20000)
       );
       
+      const cleanedVenmo = sanitizeVenmoUsername(settings.venmoUsername);
+      const cleanedPaypal = sanitizePaypalUsername(settings.paypalMeUsername);
+      const cleanedCashApp = sanitizeCashAppTag(settings.cashAppTag);
+
       const updatedSettings = stripUndefinedDeep({
         ...settings,
+        venmoUsername: cleanedVenmo,
+        paypalMeUsername: cleanedPaypal,
+        cashAppTag: cleanedCashApp,
         whatsappNumber: formatPhoneByCountry(settings.whatsappNumber || '', settings.whatsappCountryCode || '+1'),
         whatsappCountryCode: settings.whatsappCountryCode || '+1',
         language: settings.language || 'en',
@@ -996,6 +1126,13 @@ export default function Admin({
         pickupSlotIntervalMinutes: Number(settings.pickupSlotIntervalMinutes || 15),
         onlinePaymentProvider: settings.onlinePaymentProvider || 'simulation'
       });
+
+      setSettings((prev) => ({
+        ...prev,
+        venmoUsername: cleanedVenmo,
+        paypalMeUsername: cleanedPaypal,
+        cashAppTag: cleanedCashApp,
+      }));
 
       // Se o frete estiver ativado e tiver endereço, mas não tiver coordenadas, localiza automaticamente
       if (updatedSettings.deliveryEnabled && updatedSettings.deliveryOriginAddress?.trim() && (!updatedSettings.deliveryOriginLat || !updatedSettings.deliveryOriginLng)) {
@@ -1026,7 +1163,7 @@ export default function Admin({
         timeoutPromise
       ]);
       
-      toast.success('Configurações salvas com sucesso!');
+      toast.success('Configurações salvas! Os links e QR Codes de pagamento no Totem já foram atualizados em tempo real.');
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
@@ -4494,7 +4631,7 @@ export default function Admin({
 
                 {/* PAGAMENTOS NO TOTEM (QR CODE & CONFIRMAÇÃO AUTOMÁTICA POR E-MAIL) */}
                 <div className="p-5 rounded-2xl bg-stone-50 border border-stone-200 space-y-5">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-200 pb-3">
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b border-stone-200 pb-3">
                     <div>
                       <span className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-800">
                         Exclusivo para o Totem na Loja
@@ -4503,66 +4640,159 @@ export default function Admin({
                         <QrCode size={18} /> Pagamentos no Totem (QR Code & Confirmação Automática)
                       </h4>
                       <p className="text-xs text-stone-600 mt-0.5">
-                        Gere QR Codes dinâmicos na hora (Venmo, PayPal e Cash App) com valor exato e confirmação automática via Gmail (Google Apps Script). Os valores padrão de demonstração podem ser substituídos pelo seu usuário a qualquer momento.
+                        Cole o usuário, o link completo ou envie a imagem do seu QR Code oficial (Venmo, PayPal ou Cash App). O Totem gera o QR dinâmico na hora com o valor exato e o Order # preenchidos automaticamente.
                       </p>
                     </div>
+                    <button
+                      type="button"
+                      onClick={saveSettings}
+                      disabled={isSaving}
+                      className="shrink-0 px-4 py-2 rounded-xl bg-stone-900 hover:bg-stone-800 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                    >
+                      {isSaving ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" /> Salvando...
+                        </>
+                      ) : saveSuccess ? (
+                        <>
+                          <CheckCircle2 size={14} className="text-emerald-400" /> Atualizado no Totem!
+                        </>
+                      ) : (
+                        <>
+                          <Save size={14} /> Salvar Pagamentos
+                        </>
+                      )}
+                    </button>
                   </div>
 
-                  {/* 1. Identificadores do Lojista */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-stone-700">
-                        Venmo Username
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full p-2.5 rounded-xl border border-stone-300 bg-white text-sm font-mono"
-                        value={settings?.venmoUsername ?? 'easykioski-demo'}
-                        onChange={(e) => setSettings({ ...settings, venmoUsername: e.target.value })}
-                        placeholder="@nome-do-restaurante"
-                      />
-                      {settings?.venmoUsername?.trim() && (
-                        <p className="text-[10px] text-emerald-700 font-semibold">
-                          Link gerado: venmo.com/{sanitizeVenmoUsername(settings.venmoUsername)}
-                        </p>
-                      )}
-                    </div>
+                  {/* 1. Identificadores do Lojista + Upload Automático de QR Code + Testar Link */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    {(
+                      [
+                        {
+                          method: 'venmo' as TotemQrOnlyMethod,
+                          label: 'Venmo Username',
+                          placeholder: '@nome-do-restaurante ou link venmo.com/u/...',
+                          rawValue: settings?.venmoUsername ?? '',
+                          cleanUser: sanitizeVenmoUsername(settings?.venmoUsername),
+                          previewPrefix: 'venmo.com/u/',
+                        },
+                        {
+                          method: 'paypal' as TotemQrOnlyMethod,
+                          label: 'PayPal.me Username',
+                          placeholder: 'nome-do-restaurante ou link paypal.me/...',
+                          rawValue: settings?.paypalMeUsername ?? '',
+                          cleanUser: sanitizePaypalUsername(settings?.paypalMeUsername),
+                          previewPrefix: 'paypal.me/',
+                        },
+                        {
+                          method: 'cashapp' as TotemQrOnlyMethod,
+                          label: 'Cash App $Cashtag',
+                          placeholder: '$nome-do-restaurante ou link cash.app/$...',
+                          rawValue: settings?.cashAppTag ?? '',
+                          cleanUser: sanitizeCashAppTag(settings?.cashAppTag),
+                          previewPrefix: 'cash.app/$',
+                        },
+                      ]
+                    ).map(({ method, label, placeholder, rawValue, cleanUser, previewPrefix }) => {
+                      const testUrl = buildTotemQrTestUrl(method, rawValue, 1, 101);
+                      const isScanning = scanningQrMethod === method;
+                      const feedback = qrScanFeedback[method];
 
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-stone-700">
-                        PayPal.me Username
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full p-2.5 rounded-xl border border-stone-300 bg-white text-sm font-mono"
-                        value={settings?.paypalMeUsername ?? 'easykioskidemo'}
-                        onChange={(e) => setSettings({ ...settings, paypalMeUsername: e.target.value })}
-                        placeholder="nome-do-restaurante"
-                      />
-                      {settings?.paypalMeUsername?.trim() && (
-                        <p className="text-[10px] text-emerald-700 font-semibold">
-                          Link gerado: paypal.me/{sanitizePaypalUsername(settings.paypalMeUsername)}
-                        </p>
-                      )}
-                    </div>
+                      return (
+                        <div
+                          key={method}
+                          className="p-3.5 rounded-xl bg-white border border-stone-200 flex flex-col justify-between gap-2.5 shadow-2xs"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <label className="text-[11px] font-bold uppercase tracking-wider text-stone-700">
+                                {label}
+                              </label>
+                              {cleanUser && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  Ativo
+                                </span>
+                              )}
+                            </div>
 
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-bold uppercase tracking-wider text-stone-700">
-                        Cash App $Cashtag
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full p-2.5 rounded-xl border border-stone-300 bg-white text-sm font-mono"
-                        value={settings?.cashAppTag ?? 'easykioskidemo'}
-                        onChange={(e) => setSettings({ ...settings, cashAppTag: e.target.value })}
-                        placeholder="$nome-do-restaurante"
-                      />
-                      {settings?.cashAppTag?.trim() && (
-                        <p className="text-[10px] text-emerald-700 font-semibold">
-                          Link gerado: cash.app/${sanitizeCashAppTag(settings.cashAppTag)}
-                        </p>
-                      )}
-                    </div>
+                            <input
+                              type="text"
+                              className="w-full p-2.5 rounded-xl border border-stone-300 bg-stone-50/50 focus:bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-stone-900/15"
+                              value={rawValue}
+                              onChange={(e) => handleWalletInputChange(method, e.target.value)}
+                              onBlur={() => handleWalletInputBlur(method)}
+                              placeholder={placeholder}
+                            />
+
+                            {/* Botão de Upload e Leitura Automática de QR Code */}
+                            <label
+                              className={cn(
+                                'w-full px-3 py-2 rounded-xl border border-dashed border-stone-300 bg-stone-50 hover:bg-stone-100 hover:border-stone-400 text-stone-800 text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer select-none',
+                                isScanning && 'opacity-60 pointer-events-none'
+                              )}
+                            >
+                              {isScanning ? (
+                                <>
+                                  <Loader2 size={13} className="animate-spin text-stone-700" />
+                                  <span>Lendo QR Code...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Camera size={13} className="text-stone-700 shrink-0" />
+                                  <span>Enviar imagem do meu QR Code</span>
+                                </>
+                              )}
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                disabled={isScanning}
+                                onChange={(e) => handleQrCodeImageUpload(method, e)}
+                              />
+                            </label>
+
+                            {/* Feedback da leitura do QR Code */}
+                            {feedback && (
+                              <div
+                                className={cn(
+                                  'p-2 rounded-lg text-[10px] font-semibold leading-snug border',
+                                  feedback.status === 'success' && 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                                  feedback.status === 'warning' && 'bg-amber-50 text-amber-900 border-amber-200',
+                                  feedback.status === 'error' && 'bg-red-50 text-red-800 border-red-200'
+                                )}
+                              >
+                                {feedback.message}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Preview do link gerado + Botão Testar Link */}
+                          {cleanUser && testUrl ? (
+                            <div className="pt-2 border-t border-stone-100 flex items-center justify-between gap-2 flex-wrap">
+                              <p className="text-[10px] text-emerald-700 font-semibold break-all flex-1 min-w-0">
+                                {previewPrefix}
+                                <span className="font-mono">{cleanUser}</span>
+                              </p>
+                              <a
+                                href={testUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Abre um link de teste de $1.00 (Order #101) para confirmar sua conta"
+                                className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold transition-colors"
+                              >
+                                <ExternalLink size={11} />
+                                Testar Link
+                              </a>
+                            </div>
+                          ) : (
+                            <p className="pt-2 border-t border-stone-100 text-[10px] text-stone-400">
+                              Deixe vazio se não quiser exibir {getWalletDisplayName(method)} no Totem.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
 
                   {/* Toggles: Pay at Counter + Modo Demonstração */}

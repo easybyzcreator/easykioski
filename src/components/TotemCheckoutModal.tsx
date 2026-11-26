@@ -1129,6 +1129,7 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
                               {/* High-Contrast Large Local SVG QR Code */}
                               <div className="p-4 sm:p-5 bg-white rounded-3xl shadow-inner border border-black/10 flex items-center justify-center">
                                 <QRCodeSVG
+                                  key={qrUrl}
                                   value={qrUrl}
                                   size={240}
                                   level="M"

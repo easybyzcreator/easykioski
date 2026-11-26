@@ -10,9 +10,28 @@ export const DEFAULT_DEMO_CASHAPP = 'easykioskidemo';
 
 export function sanitizeVenmoUsername(raw?: string): string {
   if (!raw) return '';
-  return raw
-    .trim()
-    .replace(/^https?:\/\/(www\.)?venmo\.com\//i, '')
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+
+  // Handle venmo:// deep links (e.g. venmo://paycharge?txn=pay&recipients=User)
+  const recipientsMatch = trimmed.match(/[?&]recipients=([^&#]+)/i);
+  if (recipientsMatch?.[1]) {
+    try {
+      return decodeURIComponent(recipientsMatch[1]).replace(/^@+/, '').trim();
+    } catch {
+      return recipientsMatch[1].replace(/^@+/, '').trim();
+    }
+  }
+
+  // Opaque Venmo QR links like https://venmo.com/code?user_id=... do not contain a username
+  if (/venmo\.com\/code(?:[/?#]|$)/i.test(trimmed)) {
+    return '';
+  }
+
+  return trimmed
+    .replace(/^https?:\/\/(?:www\.|account\.)?venmo\.com\/(?:u\/)?/i, '')
+    .replace(/^(?:www\.|account\.)?venmo\.com\/(?:u\/)?/i, '')
+    .replace(/^u\//i, '')
     .replace(/^@+/, '')
     .replace(/[/?#].*$/, '')
     .trim();
@@ -20,9 +39,17 @@ export function sanitizeVenmoUsername(raw?: string): string {
 
 export function sanitizePaypalUsername(raw?: string): string {
   if (!raw) return '';
-  return raw
-    .trim()
-    .replace(/^https?:\/\/(www\.)?paypal\.me\//i, '')
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+
+  // Opaque PayPal managed QR links like paypal.com/qrcodes/... do not contain a PayPal.me handle
+  if (/paypal\.com\/(?:qrcodes|myaccount|webapps|cgi-bin)\//i.test(trimmed)) {
+    return '';
+  }
+
+  return trimmed
+    .replace(/^https?:\/\/(?:www\.)?(?:paypal\.me|paypal\.com\/paypalme)\//i, '')
+    .replace(/^(?:www\.)?(?:paypal\.me|paypal\.com\/paypalme)\//i, '')
     .replace(/^@+/, '')
     .replace(/[/?#].*$/, '')
     .trim();
@@ -30,9 +57,17 @@ export function sanitizePaypalUsername(raw?: string): string {
 
 export function sanitizeCashAppTag(raw?: string): string {
   if (!raw) return '';
-  return raw
-    .trim()
-    .replace(/^https?:\/\/(www\.)?cash\.app\//i, '')
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+
+  // Opaque Cash App QR links like cash.app/qr/... do not contain a $Cashtag
+  if (/cash\.(?:app|me)\/qr\//i.test(trimmed)) {
+    return '';
+  }
+
+  return trimmed
+    .replace(/^https?:\/\/(?:www\.)?cash\.(?:app|me)\//i, '')
+    .replace(/^(?:www\.)?cash\.(?:app|me)\//i, '')
     .replace(/^\$+/, '')
     .replace(/[/?#].*$/, '')
     .trim();
@@ -64,8 +99,7 @@ export function buildTotemQrPaymentUrl(
   const safeTotal = Math.max(0.01, Number(total) || 0).toFixed(2);
   if (method === 'venmo') {
     const venmoUser = sanitizeVenmoUsername(settings.venmoUsername) || DEFAULT_DEMO_VENMO;
-    const note = encodeURIComponent(`Order #${orderNumber}`);
-    return `https://venmo.com/${encodeURIComponent(venmoUser)}?txn=pay&amount=${safeTotal}&note=${note}`;
+    return `https://venmo.com/u/${encodeURIComponent(venmoUser)}?txn=pay&amount=${safeTotal}&note=Order%20%23${encodeURIComponent(String(orderNumber))}`;
   }
   if (method === 'paypal') {
     const paypalUser = sanitizePaypalUsername(settings.paypalMeUsername) || DEFAULT_DEMO_PAYPAL;
@@ -73,6 +107,28 @@ export function buildTotemQrPaymentUrl(
   }
   const cashTag = sanitizeCashAppTag(settings.cashAppTag) || DEFAULT_DEMO_CASHAPP;
   return `https://cash.app/$${encodeURIComponent(cashTag)}/${safeTotal}`;
+}
+
+export function buildTotemQrTestUrl(
+  method: TotemQrOnlyMethod,
+  rawIdentifier?: string,
+  sampleAmount: number = 1,
+  sampleOrderNumber: number = 101
+): string | null {
+  const safeTotal = Math.max(0.01, Number(sampleAmount) || 1).toFixed(2);
+  if (method === 'venmo') {
+    const user = sanitizeVenmoUsername(rawIdentifier);
+    if (!user) return null;
+    return `https://venmo.com/u/${encodeURIComponent(user)}?txn=pay&amount=${safeTotal}&note=Order%20%23${encodeURIComponent(String(sampleOrderNumber))}`;
+  }
+  if (method === 'paypal') {
+    const user = sanitizePaypalUsername(rawIdentifier);
+    if (!user) return null;
+    return `https://www.paypal.com/paypalme/${encodeURIComponent(user)}/${safeTotal}`;
+  }
+  const tag = sanitizeCashAppTag(rawIdentifier);
+  if (!tag) return null;
+  return `https://cash.app/$${encodeURIComponent(tag)}/${safeTotal}`;
 }
 
 export function getAvailableTotemQrWallets(settings: Settings): TotemQrOnlyMethod[] {

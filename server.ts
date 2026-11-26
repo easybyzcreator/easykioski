@@ -342,6 +342,82 @@ async function startServer() {
     }
   });
 
+  const ALLOWED_WALLET_HOSTS = new Set([
+    'venmo.com',
+    'www.venmo.com',
+    'account.venmo.com',
+    'paypal.com',
+    'www.paypal.com',
+    'paypal.me',
+    'www.paypal.me',
+    'cash.app',
+    'www.cash.app',
+    'cash.me',
+    'www.cash.me',
+  ]);
+
+  app.post('/api/resolve-wallet-url', async (req, res) => {
+    try {
+      const rawUrl = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+      if (!rawUrl || rawUrl.length > 500) {
+        return res.status(400).json({ error: 'URL inválida.' });
+      }
+
+      let currentUrl: URL;
+      try {
+        currentUrl = new URL(rawUrl);
+      } catch {
+        return res.status(400).json({ error: 'Formato de URL inválido.' });
+      }
+
+      if (currentUrl.protocol !== 'https:' || !ALLOWED_WALLET_HOSTS.has(currentUrl.hostname.toLowerCase())) {
+        return res.status(400).json({ error: 'Domínio não permitido.' });
+      }
+
+      let resolvedUrl = currentUrl.toString();
+
+      for (let hop = 0; hop < 3; hop++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+        try {
+          const response = await fetch(resolvedUrl, {
+            method: 'HEAD',
+            redirect: 'manual',
+            signal: controller.signal,
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+            },
+          });
+
+          const location = response.headers.get('location');
+          if (!location || response.status < 300 || response.status >= 400) {
+            break;
+          }
+
+          const nextUrl = new URL(location, resolvedUrl);
+          if (nextUrl.protocol !== 'https:' || !ALLOWED_WALLET_HOSTS.has(nextUrl.hostname.toLowerCase())) {
+            break;
+          }
+
+          resolvedUrl = nextUrl.toString();
+
+          // Stop as soon as we reach a canonical username URL
+          if (/venmo\.com\/u\/|paypal\.me\/|paypal\.com\/paypalme\/|cash\.(?:app|me)\/\$/i.test(resolvedUrl)) {
+            break;
+          }
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+
+      return res.json({ resolvedUrl });
+    } catch (err: any) {
+      console.warn('[api/resolve-wallet-url] Failed to resolve wallet URL:', err?.message || err);
+      return res.status(502).json({ error: 'Não foi possível resolver o redirecionamento do QR Code.' });
+    }
+  });
+
   // Never let unknown /api/* requests fall through to index.html (prevents "<!doctype ... is not valid JSON")
   app.all('/api/*', (_req, res) => {
     res.status(404).json({ error: 'Rota de API não encontrada.' });

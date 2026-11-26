@@ -10,6 +10,11 @@ import { Settings } from './types';
 import { Toaster } from 'sonner';
 import { DEFAULT_TOTEM_SETTINGS, ensureInitialCatalogSeed } from './services/catalogSeedService';
 import { getBrandTheme } from './utils/brandTheme';
+import {
+  sanitizeCashAppTag,
+  sanitizePaypalUsername,
+  sanitizeVenmoUsername,
+} from './services/appsScriptGenerator';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -153,9 +158,9 @@ export default function App() {
             whatsappCountryCode: data.whatsappCountryCode || '+1',
             salesTaxRate: typeof data.salesTaxRate === 'number' ? data.salesTaxRate : (prev.salesTaxRate ?? 7.75),
             terminalProvider: data.terminalProvider || prev.terminalProvider || 'simulation',
-            venmoUsername: data.venmoUsername?.trim() ? data.venmoUsername : 'easykioski-demo',
-            paypalMeUsername: data.paypalMeUsername?.trim() ? data.paypalMeUsername : 'easykioskidemo',
-            cashAppTag: data.cashAppTag?.trim() ? data.cashAppTag : 'easykioskidemo',
+            venmoUsername: data.venmoUsername !== undefined ? sanitizeVenmoUsername(data.venmoUsername) : 'easykioski-demo',
+            paypalMeUsername: data.paypalMeUsername !== undefined ? sanitizePaypalUsername(data.paypalMeUsername) : 'easykioskidemo',
+            cashAppTag: data.cashAppTag !== undefined ? sanitizeCashAppTag(data.cashAppTag) : 'easykioskidemo',
             allowPayAtCounter: data.allowPayAtCounter !== undefined ? data.allowPayAtCounter : true,
           }));
         }
