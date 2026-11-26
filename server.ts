@@ -402,8 +402,8 @@ async function startServer() {
 
           resolvedUrl = nextUrl.toString();
 
-          // Stop as soon as we reach a canonical username URL
-          if (/venmo\.com\/u\/|paypal\.me\/|paypal\.com\/paypalme\/|cash\.(?:app|me)\/\$/i.test(resolvedUrl)) {
+          // Stop as soon as we reach a canonical username or PayPal Business profile URL
+          if (/venmo\.com\/u\/|paypal\.me\/|paypal\.com\/paypalme\/|paypal\.com\/biz\/profile\/|cash\.(?:app|me)\/\$/i.test(resolvedUrl)) {
             break;
           }
         } finally {

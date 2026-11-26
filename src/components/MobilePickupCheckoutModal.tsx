@@ -38,7 +38,9 @@ import { getBrandTheme } from '../utils/brandTheme';
 import { generateNextDailyOrderNumber } from '../services/orderNumberService';
 import {
   buildTotemQrPaymentUrl,
+  formatPaypalDisplayLabel,
   getAvailableMobilePaymentMethods,
+  isPaypalBizProfileUrl,
   MobileWalletMethod,
   sanitizeCashAppTag,
   sanitizePaypalUsername,
@@ -1348,7 +1350,10 @@ export const MobilePickupCheckoutModal: React.FC<MobilePickupCheckoutModalProps>
                         <div className="min-w-0">
                           <div className="text-base font-black tracking-tight">{t.mobilePayWithPaypal}</div>
                           <div className="text-[11px] font-semibold text-white/85 truncate">
-                            paypal.me/{sanitizePaypalUsername(settings.paypalMeUsername)} · {t.mobileTapToOpenApp}
+                            {formatPaypalDisplayLabel(settings.paypalMeUsername)} ·{' '}
+                            {isPaypalBizProfileUrl(settings.paypalMeUsername)
+                              ? `Tap Pay · $${pendingOrder.total.toFixed(2)}`
+                              : t.mobileTapToOpenApp}
                           </div>
                         </div>
                       </div>

@@ -30,9 +30,9 @@ import {
   DEFAULT_DEMO_CASHAPP,
   DEFAULT_DEMO_PAYPAL,
   DEFAULT_DEMO_VENMO,
+  formatPaypalDisplayLabel,
   getAvailableTotemQrWallets,
   sanitizeCashAppTag,
-  sanitizePaypalUsername,
   sanitizeVenmoUsername,
   TotemQrOnlyMethod,
 } from '../services/appsScriptGenerator';
@@ -1080,7 +1080,7 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
                             selectedWallet === 'venmo'
                               ? `@${sanitizeVenmoUsername(settings.venmoUsername) || DEFAULT_DEMO_VENMO}`
                               : selectedWallet === 'paypal'
-                                ? `paypal.me/${sanitizePaypalUsername(settings.paypalMeUsername) || DEFAULT_DEMO_PAYPAL}`
+                                ? formatPaypalDisplayLabel(settings.paypalMeUsername || DEFAULT_DEMO_PAYPAL)
                                 : `$${sanitizeCashAppTag(settings.cashAppTag) || DEFAULT_DEMO_CASHAPP}`;
                           const walletTitle =
                             selectedWallet === 'venmo'
@@ -1137,6 +1137,36 @@ export const TotemCheckoutModal: React.FC<TotemCheckoutModalProps> = ({
                                   fgColor="#111111"
                                 />
                               </div>
+
+                              {/* PayPal exact-amount instruction banner */}
+                              {selectedWallet === 'paypal' && (
+                                <div className="w-full px-4 py-3 rounded-2xl bg-blue-50 border border-blue-200 text-blue-950 text-center space-y-0.5">
+                                  <p className="text-xs font-bold leading-snug">
+                                    {language === 'pt' ? (
+                                      <>
+                                        Toque em <strong>Pay</strong> no PayPal e digite o valor exato:{' '}
+                                        <span className="inline-block px-1.5 py-0.5 rounded-md bg-blue-600 text-white font-black tabular-nums">
+                                          ${grandTotal.toFixed(2)}
+                                        </span>
+                                      </>
+                                    ) : language === 'es' ? (
+                                      <>
+                                        Toca <strong>Pay</strong> en PayPal e ingresa el monto exacto:{' '}
+                                        <span className="inline-block px-1.5 py-0.5 rounded-md bg-blue-600 text-white font-black tabular-nums">
+                                          ${grandTotal.toFixed(2)}
+                                        </span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        Tap <strong>Pay</strong> on PayPal and enter exact amount:{' '}
+                                        <span className="inline-block px-1.5 py-0.5 rounded-md bg-blue-600 text-white font-black tabular-nums">
+                                          ${grandTotal.toFixed(2)}
+                                        </span>
+                                      </>
+                                    )}
+                                  </p>
+                                </div>
+                              )}
 
                               {/* Animated Waiting Indicator */}
                               <div

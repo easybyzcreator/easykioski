@@ -37,10 +37,21 @@ export function sanitizeVenmoUsername(raw?: string): string {
     .trim();
 }
 
+export function isPaypalBizProfileUrl(raw?: string): boolean {
+  if (!raw) return false;
+  return /(?:^https?:\/\/)?(?:www\.)?paypal\.com\/biz\/profile\/[^/?#\s]+/i.test(raw.trim());
+}
+
 export function sanitizePaypalUsername(raw?: string): string {
   if (!raw) return '';
   const trimmed = raw.trim();
   if (!trimmed) return '';
+
+  // Preserve full PayPal Business Profile URLs (normalized without trailing /amount or query params)
+  const bizMatch = trimmed.match(/(?:^https?:\/\/)?(?:www\.)?paypal\.com\/biz\/profile\/([^/?#\s]+)/i);
+  if (bizMatch?.[1]) {
+    return `https://www.paypal.com/biz/profile/${bizMatch[1].trim()}`;
+  }
 
   // Opaque PayPal managed QR links like paypal.com/qrcodes/... do not contain a PayPal.me handle
   if (/paypal\.com\/(?:qrcodes|myaccount|webapps|cgi-bin)\//i.test(trimmed)) {
@@ -53,6 +64,15 @@ export function sanitizePaypalUsername(raw?: string): string {
     .replace(/^@+/, '')
     .replace(/[/?#].*$/, '')
     .trim();
+}
+
+export function formatPaypalDisplayLabel(raw?: string): string {
+  const cleaned = sanitizePaypalUsername(raw);
+  if (!cleaned) return '';
+  if (isPaypalBizProfileUrl(cleaned)) {
+    return cleaned.replace(/^https?:\/\/(?:www\.)?/i, '');
+  }
+  return `paypal.me/${cleaned}`;
 }
 
 export function sanitizeCashAppTag(raw?: string): string {
@@ -102,8 +122,11 @@ export function buildTotemQrPaymentUrl(
     return `https://venmo.com/u/${encodeURIComponent(venmoUser)}?txn=pay&amount=${safeTotal}&note=Order%20%23${encodeURIComponent(String(orderNumber))}`;
   }
   if (method === 'paypal') {
-    const paypalUser = sanitizePaypalUsername(settings.paypalMeUsername) || DEFAULT_DEMO_PAYPAL;
-    return `https://www.paypal.com/paypalme/${encodeURIComponent(paypalUser)}/${safeTotal}`;
+    const paypalValue = sanitizePaypalUsername(settings.paypalMeUsername) || DEFAULT_DEMO_PAYPAL;
+    if (isPaypalBizProfileUrl(paypalValue)) {
+      return paypalValue;
+    }
+    return `https://www.paypal.com/paypalme/${encodeURIComponent(paypalValue)}/${safeTotal}`;
   }
   const cashTag = sanitizeCashAppTag(settings.cashAppTag) || DEFAULT_DEMO_CASHAPP;
   return `https://cash.app/$${encodeURIComponent(cashTag)}/${safeTotal}`;
@@ -122,9 +145,12 @@ export function buildTotemQrTestUrl(
     return `https://venmo.com/u/${encodeURIComponent(user)}?txn=pay&amount=${safeTotal}&note=Order%20%23${encodeURIComponent(String(sampleOrderNumber))}`;
   }
   if (method === 'paypal') {
-    const user = sanitizePaypalUsername(rawIdentifier);
-    if (!user) return null;
-    return `https://www.paypal.com/paypalme/${encodeURIComponent(user)}/${safeTotal}`;
+    const value = sanitizePaypalUsername(rawIdentifier);
+    if (!value) return null;
+    if (isPaypalBizProfileUrl(value)) {
+      return value;
+    }
+    return `https://www.paypal.com/paypalme/${encodeURIComponent(value)}/${safeTotal}`;
   }
   const tag = sanitizeCashAppTag(rawIdentifier);
   if (!tag) return null;

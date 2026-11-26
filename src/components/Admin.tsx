@@ -35,8 +35,10 @@ import {
 } from '../services/catalogTranslationService';
 import {
   buildTotemQrTestUrl,
+  formatPaypalDisplayLabel,
   generateGoogleAppsScriptCode,
   generateSecureWebhookSecret,
+  isPaypalBizProfileUrl,
   sanitizeCashAppTag,
   sanitizePaypalUsername,
   sanitizeVenmoUsername,
@@ -234,20 +236,49 @@ export default function Admin({
 
   const handleWalletInputChange = (method: TotemQrOnlyMethod, rawValue: string) => {
     const fieldKey = getWalletFieldKey(method);
+    const prevValue = settings?.[fieldKey] ?? '';
+
+    // Always clear any previous scan warning/error banner when the user manually edits the field
+    setQrScanFeedback((prev) => {
+      if (!prev[method]) return prev;
+      const next = { ...prev };
+      delete next[method];
+      return next;
+    });
+
     const looksLikeUrl = /https?:\/\/|venmo:\/\/|(?:venmo|paypal)\.com\/|paypal\.me\/|cash\.(?:app|me)\//i.test(rawValue);
+    const isLikelyPaste = Math.abs(rawValue.length - prevValue.length) > 3;
+
     if (looksLikeUrl) {
       const extracted = sanitizeWalletByMethod(method, rawValue);
       if (extracted) {
-        setSettings((prev) => ({ ...prev, [fieldKey]: extracted }));
-        setQrScanFeedback((prev) => ({
-          ...prev,
-          [method]: {
-            status: 'success',
-            message: `Link reconhecido! Usuário extraído automaticamente: ${extracted}`,
-          },
-        }));
-        toast.success(`Usuário do ${getWalletDisplayName(method)} extraído do link: ${extracted}`);
-        return;
+        if (method === 'paypal' && isPaypalBizProfileUrl(extracted)) {
+          setSettings((prev) => ({ ...prev, [fieldKey]: extracted }));
+          if (isLikelyPaste) {
+            setQrScanFeedback((prev) => ({
+              ...prev,
+              [method]: {
+                status: 'success',
+                message: 'Link PayPal Business preservado! O Totem exibirá o valor exato para o cliente digitar no botão Pay.',
+              },
+            }));
+            toast.success('URL do PayPal Business reconhecida e preservada!');
+          }
+          return;
+        }
+
+        if (extracted !== rawValue) {
+          setSettings((prev) => ({ ...prev, [fieldKey]: extracted }));
+          setQrScanFeedback((prev) => ({
+            ...prev,
+            [method]: {
+              status: 'success',
+              message: `Link reconhecido! Usuário extraído automaticamente: ${extracted}`,
+            },
+          }));
+          toast.success(`Usuário do ${getWalletDisplayName(method)} extraído do link: ${extracted}`);
+          return;
+        }
       }
     }
     setSettings((prev) => ({ ...prev, [fieldKey]: rawValue }));
@@ -4675,15 +4706,17 @@ export default function Admin({
                           placeholder: '@nome-do-restaurante ou link venmo.com/u/...',
                           rawValue: settings?.venmoUsername ?? '',
                           cleanUser: sanitizeVenmoUsername(settings?.venmoUsername),
-                          previewPrefix: 'venmo.com/u/',
+                          previewText: sanitizeVenmoUsername(settings?.venmoUsername)
+                            ? `venmo.com/u/${sanitizeVenmoUsername(settings?.venmoUsername)}`
+                            : '',
                         },
                         {
                           method: 'paypal' as TotemQrOnlyMethod,
-                          label: 'PayPal.me Username',
-                          placeholder: 'nome-do-restaurante ou link paypal.me/...',
+                          label: 'PayPal.me / PayPal Business',
+                          placeholder: 'easybyzcreator ou https://www.paypal.com/biz/profile/...',
                           rawValue: settings?.paypalMeUsername ?? '',
                           cleanUser: sanitizePaypalUsername(settings?.paypalMeUsername),
-                          previewPrefix: 'paypal.me/',
+                          previewText: formatPaypalDisplayLabel(settings?.paypalMeUsername),
                         },
                         {
                           method: 'cashapp' as TotemQrOnlyMethod,
@@ -4691,10 +4724,12 @@ export default function Admin({
                           placeholder: '$nome-do-restaurante ou link cash.app/$...',
                           rawValue: settings?.cashAppTag ?? '',
                           cleanUser: sanitizeCashAppTag(settings?.cashAppTag),
-                          previewPrefix: 'cash.app/$',
+                          previewText: sanitizeCashAppTag(settings?.cashAppTag)
+                            ? `cash.app/$${sanitizeCashAppTag(settings?.cashAppTag)}`
+                            : '',
                         },
                       ]
-                    ).map(({ method, label, placeholder, rawValue, cleanUser, previewPrefix }) => {
+                    ).map(({ method, label, placeholder, rawValue, cleanUser, previewText }) => {
                       const testUrl = buildTotemQrTestUrl(method, rawValue, 1, 101);
                       const isScanning = scanningQrMethod === method;
                       const feedback = qrScanFeedback[method];
@@ -4770,15 +4805,18 @@ export default function Admin({
                           {/* Preview do link gerado + Botão Testar Link */}
                           {cleanUser && testUrl ? (
                             <div className="pt-2 border-t border-stone-100 flex items-center justify-between gap-2 flex-wrap">
-                              <p className="text-[10px] text-emerald-700 font-semibold break-all flex-1 min-w-0">
-                                {previewPrefix}
-                                <span className="font-mono">{cleanUser}</span>
+                              <p className="text-[10px] text-emerald-700 font-semibold break-all flex-1 min-w-0 font-mono">
+                                {previewText}
                               </p>
                               <a
                                 href={testUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                title="Abre um link de teste de $1.00 (Order #101) para confirmar sua conta"
+                                title={
+                                  method === 'paypal' && isPaypalBizProfileUrl(cleanUser)
+                                    ? 'Abre o perfil comercial do PayPal Business para confirmar sua conta'
+                                    : 'Abre um link de teste de $1.00 (Order #101) para confirmar sua conta'
+                                }
                                 className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold transition-colors"
                               >
                                 <ExternalLink size={11} />
