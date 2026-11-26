@@ -175,6 +175,8 @@ export const formatPaymentProviderLabel = (provider?: string): string => {
   if (key === 'paypal') return 'PayPal';
   if (key === 'cashapp') return 'Cash App';
   if (key === 'zelle') return 'Zelle';
+  if (key === 'cash') return 'Dinheiro';
+  if (key === 'card') return 'Cartão';
   if (key === 'counter') return 'Balcão';
   if (key === 'square' || key === 'square_web') return 'Square';
   if (key === 'zettle') return 'Zettle';

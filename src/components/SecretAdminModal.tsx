@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Lock, X, Settings as SettingsIcon, ChefHat, ShieldCheck } from 'lucide-react';
+import { Lock, X, Settings as SettingsIcon, ChefHat, ShieldCheck, Store } from 'lucide-react';
 import { Settings } from '../types';
 import { getContrastText } from '../utils/orderUtils';
 import { toast } from 'sonner';
@@ -12,6 +12,7 @@ interface SecretAdminModalProps {
   settings: Settings;
   onEnterAdmin: () => void;
   onEnterKDS: () => void;
+  onEnterCashier?: () => void;
 }
 
 export const SecretAdminModal: React.FC<SecretAdminModalProps> = ({
@@ -20,6 +21,7 @@ export const SecretAdminModal: React.FC<SecretAdminModalProps> = ({
   settings,
   onEnterAdmin,
   onEnterKDS,
+  onEnterCashier,
 }) => {
   const [password, setPassword] = useState('');
   const [unlocked, setUnlocked] = useState(false);
@@ -156,6 +158,20 @@ export const SecretAdminModal: React.FC<SecretAdminModalProps> = ({
                   <ChefHat size={18} />
                   <span>Open Kitchen Display (KDS)</span>
                 </button>
+
+                {onEnterCashier && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onEnterCashier();
+                    }}
+                    className="w-full min-h-[54px] px-5 rounded-2xl font-bold text-sm shadow-lg border flex items-center justify-center gap-2.5 active:scale-[0.98] transition-all cursor-pointer bg-stone-900 text-white border-stone-800 hover:bg-stone-800"
+                  >
+                    <Store size={18} />
+                    <span>Open Cashier POS (/cashier)</span>
+                  </button>
+                )}
               </div>
             )}
           </motion.div>

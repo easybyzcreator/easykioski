@@ -3,11 +3,14 @@ import Menu from './components/Menu';
 import Admin from './components/Admin';
 import Footer from './components/Footer';
 import { KDSView } from './components/KDSView';
+import { CashierView } from './components/CashierView';
 import { SecretAdminModal } from './components/SecretAdminModal';
+import { TotemScreensaverOverlay } from './screensaver/TotemScreensaverOverlay';
 import { db } from './firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { Settings } from './types';
 import { Toaster } from 'sonner';
+import { Maximize2 } from 'lucide-react';
 import { DEFAULT_TOTEM_SETTINGS, ensureInitialCatalogSeed } from './services/catalogSeedService';
 import { getBrandTheme } from './utils/brandTheme';
 import {
@@ -70,7 +73,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   }
 }
 
-type AppRoute = 'kiosk' | 'mobile_pickup' | 'admin' | 'kds';
+type AppRoute = 'kiosk' | 'mobile_pickup' | 'admin' | 'kds' | 'cashier';
 
 export default function App() {
   const [route, setRoute] = useState<AppRoute>('kiosk');
@@ -79,6 +82,31 @@ export default function App() {
   const [activeScreen, setActiveScreen] = useState<'intro' | 'selector' | 'menu'>('intro');
   const [settings, setSettings] = useState<Settings>(DEFAULT_TOTEM_SETTINGS);
   const [loading, setLoading] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const syncFullscreen = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    syncFullscreen();
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+  }, []);
+
+  const handleEnterTotemFullscreen = async () => {
+    try {
+      const el = document.documentElement as HTMLElement & {
+        webkitRequestFullscreen?: () => Promise<void> | void;
+      };
+      if (el.requestFullscreen) {
+        await el.requestFullscreen();
+      } else if (el.webkitRequestFullscreen) {
+        await el.webkitRequestFullscreen();
+      }
+    } catch (err) {
+      console.warn('Fullscreen request blocked or unsupported:', err);
+    }
+  };
 
   const navigateTo = (nextRoute: AppRoute, unlocked: boolean = false) => {
     setAdminUnlockedFromSecret(unlocked);
@@ -88,6 +116,8 @@ export default function App() {
         window.history.pushState({}, '', '/admin');
       } else if (nextRoute === 'kds') {
         window.history.pushState({}, '', '/kds');
+      } else if (nextRoute === 'cashier') {
+        window.history.pushState({}, '', '/cashier');
       } else if (nextRoute === 'mobile_pickup') {
         window.history.pushState({}, '', '/order');
       } else {
@@ -110,6 +140,15 @@ export default function App() {
       const search = window.location.search.toLowerCase();
 
       if (
+        path === '/cashier' ||
+        path.endsWith('/cashier') ||
+        path.startsWith('/cashier/') ||
+        hash === '#/cashier' ||
+        hash === '#cashier' ||
+        search.includes('cashier=true')
+      ) {
+        setRoute('cashier');
+      } else if (
         path === '/kds' ||
         path.endsWith('/kds') ||
         hash === '#/kds' ||
@@ -188,9 +227,11 @@ export default function App() {
         document.title =
           route === 'kds'
             ? `${settings.brandName} · Kitchen Display`
-            : route === 'mobile_pickup'
-              ? `${settings.brandName} · Mobile Pickup`
-              : `${settings.brandName} · Self-Service Kiosk`;
+            : route === 'cashier'
+              ? `${settings.brandName} · Cashier POS`
+              : route === 'mobile_pickup'
+                ? `${settings.brandName} · Mobile Pickup`
+                : `${settings.brandName} · Self-Service Kiosk`;
       }
       const root = document.documentElement.style;
       root.setProperty('--primary-color', theme.primary);
@@ -252,6 +293,21 @@ export default function App() {
     );
   }
 
+  if (route === 'cashier') {
+    return (
+      <ErrorBoundary>
+        <Toaster position="top-center" richColors />
+        <CashierView
+          settings={settings}
+          initialUnlocked={adminUnlockedFromSecret}
+          onExitToKiosk={() => navigateTo('kiosk', false)}
+          onOpenAdmin={() => navigateTo('admin', true)}
+          onOpenKDS={() => navigateTo('kds', true)}
+        />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <div className="relative min-h-screen w-full overflow-x-clip">
@@ -286,6 +342,7 @@ export default function App() {
               }}
               initialUnlocked={adminUnlockedFromSecret}
               onOpenKDS={() => navigateTo('kds', true)}
+              onOpenCashier={() => navigateTo('cashier', true)}
             />
           ) : (
             <>
@@ -304,13 +361,39 @@ export default function App() {
           )}
         </div>
 
-        {/* Secret 5-Tap Admin & KDS Access Modal */}
+        {/* Discreet 1-click Fullscreen Button — Totem / Kiosk mode ONLY (hides automatically once in fullscreen; ESC exits) */}
+        {route === 'kiosk' && !isFullscreen && (
+          <button
+            type="button"
+            onClick={handleEnterTotemFullscreen}
+            title="Expandir para Tela Cheia (ESC para sair)"
+            className="fixed top-4 left-4 z-40 min-h-[38px] px-3 py-1.5 rounded-full backdrop-blur-md border shadow-sm flex items-center gap-1.5 text-[11px] font-bold tracking-wide transition-all cursor-pointer opacity-75 hover:opacity-100 active:scale-95"
+            style={{
+              backgroundColor: theme.pillBg,
+              borderColor: theme.primaryBorder,
+              color: theme.text,
+            }}
+          >
+            <Maximize2 size={14} />
+            <span className="hidden sm:inline">Tela Cheia</span>
+          </button>
+        )}
+
+        {/* Full-screen Totem Screensaver (Totem / Kiosk route ONLY) */}
+        <TotemScreensaverOverlay
+          settings={settings}
+          language={(settings.language === 'es' || settings.language === 'pt' ? settings.language : 'en')}
+          enabled={route === 'kiosk' && !secretModalOpen}
+        />
+
+        {/* Secret 5-Tap Admin, KDS & Cashier Access Modal */}
         <SecretAdminModal
           isOpen={secretModalOpen}
           onClose={() => setSecretModalOpen(false)}
           settings={settings}
           onEnterAdmin={() => navigateTo('admin', true)}
           onEnterKDS={() => navigateTo('kds', true)}
+          onEnterCashier={() => navigateTo('cashier', true)}
         />
       </div>
     </ErrorBoundary>

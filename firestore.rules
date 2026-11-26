@@ -48,6 +48,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /totem_screensaver/{document=**} {
+      allow read, write: if true;
+    }
+
     // Regra geral para quaisquer subcoleções adicionais
     match /{document=**} {
       allow read, write: if true;

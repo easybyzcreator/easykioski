@@ -310,6 +310,7 @@ export default function Menu({
 
   // Secret 5-tap logo gesture (Totem mode only — disabled in Mobile Pickup mode)
   const logoTapTimestampsRef = useRef<number[]>([]);
+  const totemStickyHeaderRef = useRef<HTMLDivElement | null>(null);
   const handleLogoTap = useCallback(() => {
     if (isMobilePickup || !onSecretLogoUnlock) return;
     const now = Date.now();
@@ -396,6 +397,7 @@ export default function Menu({
   const [selectedToppings, setSelectedToppings] = useState<string[]>([]); // dummy if needed, but not used now
   const [selectedTopper, setSelectedTopper] = useState<string>('');
   const [isMobileCategoryMenuOpen, setIsMobileCategoryMenuOpen] = useState(false);
+  const [hoveredMobileCatId, setHoveredMobileCatId] = useState<string | null>(null);
   const mobileCatMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -2165,20 +2167,21 @@ export default function Menu({
             <button
               type="button"
               onClick={() => setIsMobileCategoryMenuOpen((prev) => !prev)}
-              className="min-h-[40px] px-3.5 py-1.5 rounded-full backdrop-blur-md border shadow-sm flex items-center gap-2 text-[11px] font-bold tracking-wide transition-all cursor-pointer active:scale-95"
+              className="min-h-[40px] px-4 py-1.5 rounded-full border shadow-md flex items-center gap-2 text-[11px] font-black tracking-wide transition-all cursor-pointer active:scale-95 hover:brightness-110"
               style={{
-                backgroundColor: theme.pillBg,
-                borderColor: theme.primaryBorder,
-                color: theme.text,
+                backgroundColor: theme.primary,
+                borderColor: theme.primary,
+                color: '#FFFFFF',
               }}
               aria-expanded={isMobileCategoryMenuOpen}
               aria-label={menuLabel}
             >
-              <MenuIcon size={15} strokeWidth={2.2} style={{ color: theme.text }} />
+              <MenuIcon size={15} strokeWidth={2.4} style={{ color: '#FFFFFF' }} />
               <span>{menuLabel}</span>
               <ChevronDown
                 size={13}
-                className={cn('transition-transform duration-200 opacity-70', isMobileCategoryMenuOpen && 'rotate-180')}
+                className={cn('transition-transform duration-200', isMobileCategoryMenuOpen && 'rotate-180')}
+                style={{ color: '#FFFFFF' }}
               />
             </button>
 
@@ -2196,21 +2199,36 @@ export default function Menu({
                   }}
                 >
                   <div className="flex flex-col divide-y" style={{ borderColor: theme.primaryBorder }}>
-                    {mobileActiveCategories.map((cat) => (
-                      <button
-                        key={cat.id}
-                        type="button"
-                        onClick={() => {
-                          setIsMobileCategoryMenuOpen(false);
-                          const el = document.getElementById(`menu-cat-${cat.id}`);
-                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }}
-                        className="w-full text-left px-4 py-2.5 text-xs font-semibold transition-colors hover:bg-black/5 active:bg-black/10 cursor-pointer flex items-center justify-between gap-2"
-                        style={{ color: theme.text, borderColor: theme.primaryBorder }}
-                      >
-                        <span className="truncate">{cat.title}</span>
-                      </button>
-                    ))}
+                    {mobileActiveCategories.map((cat) => {
+                      const isHighlighted = hoveredMobileCatId === cat.id;
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onMouseEnter={() => setHoveredMobileCatId(cat.id)}
+                          onMouseLeave={() => setHoveredMobileCatId((prev) => (prev === cat.id ? null : prev))}
+                          onPointerDown={() => setHoveredMobileCatId(cat.id)}
+                          onPointerCancel={() => setHoveredMobileCatId(null)}
+                          onClick={() => {
+                            setHoveredMobileCatId(cat.id);
+                            setTimeout(() => {
+                              setIsMobileCategoryMenuOpen(false);
+                              setHoveredMobileCatId(null);
+                            }, 110);
+                            const el = document.getElementById(`menu-cat-${cat.id}`);
+                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }}
+                          className="w-full text-left px-4 py-2.5 text-xs font-bold transition-colors cursor-pointer flex items-center justify-between gap-2"
+                          style={{
+                            backgroundColor: isHighlighted ? theme.primary : 'transparent',
+                            color: isHighlighted ? '#FFFFFF' : theme.text,
+                            borderColor: theme.primaryBorder,
+                          }}
+                        >
+                          <span className="truncate">{cat.title}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </motion.div>
               )}
@@ -2254,7 +2272,7 @@ export default function Menu({
         </div>
       )}
 
-      {/* Circular Logo — 5 rapid taps open Secret Admin/KDS modal (Totem mode only) */}
+      {/* Circular Logo — 5 rapid taps open Secret Admin/KDS/Cashier modal (Totem mode only) */}
       <div className={`${isMobilePickup ? 'mt-2' : 'mt-8'} mb-4 relative`}>
         <div 
           onClick={handleLogoTap}
@@ -2355,7 +2373,7 @@ export default function Menu({
 
 
 
-      {/* Sticky Category Quick-Jump Bar for Totem / Kiosk Screen */}
+      {/* Sticky Centered Category Menu — Below Brand Name & Slogan (Totem Mode ONLY) */}
       {!isMobilePickup && (() => {
         const activeCategories = filteredCategories
           .filter((cat) =>
@@ -2364,33 +2382,50 @@ export default function Menu({
           .sort((a, b) =>
             (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' })
           );
-        if (activeCategories.length <= 1) return null;
+        if (activeCategories.length === 0) return null;
+
+        const categoryRows: typeof activeCategories[] = [];
+        for (let i = 0; i < activeCategories.length; i += 5) {
+          categoryRows.push(activeCategories.slice(i, i + 5));
+        }
+
         return (
-          <div className="sticky top-3 z-30 w-full max-w-5xl xl:max-w-6xl mb-8">
+          <div ref={totemStickyHeaderRef} className="sticky top-3 z-30 w-full max-w-5xl xl:max-w-6xl mb-8">
             <div
-              className="flex items-center gap-2 overflow-x-auto no-scrollbar p-2 rounded-2xl backdrop-blur-xl border shadow-sm"
+              className="flex flex-col items-center gap-2 p-2.5 rounded-2xl backdrop-blur-xl border shadow-sm"
               style={{
                 backgroundColor: theme.pillBg,
                 borderColor: theme.primaryBorder,
               }}
             >
-              {activeCategories.map((cat) => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => {
-                    const el = document.getElementById(`menu-cat-${cat.id}`);
-                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }}
-                  className="px-4 py-2.5 rounded-xl text-xs sm:text-sm font-serif font-bold whitespace-nowrap transition-all cursor-pointer shrink-0 border hover:opacity-90 active:scale-95"
-                  style={{
-                    backgroundColor: theme.cardBgSolid,
-                    color: theme.categoryText,
-                    borderColor: theme.primaryBorder,
-                  }}
+              {categoryRows.map((row, rowIdx) => (
+                <div
+                  key={rowIdx}
+                  className="flex flex-wrap items-center justify-center gap-2.5 w-full"
                 >
-                  {cat.title}
-                </button>
+                  {row.map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => {
+                        const el = document.getElementById(`menu-cat-${cat.id}`);
+                        if (el) {
+                          const headerOffset = (totemStickyHeaderRef.current?.offsetHeight || 90) + 24;
+                          const targetTop = el.getBoundingClientRect().top + window.scrollY - headerOffset;
+                          window.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+                        }
+                      }}
+                      className="px-5 py-2.5 rounded-xl text-xs sm:text-sm font-serif font-bold whitespace-nowrap transition-all cursor-pointer shrink-0 border shadow-xs hover:brightness-110 active:scale-95"
+                      style={{
+                        backgroundColor: theme.primary,
+                        color: '#FFFFFF',
+                        borderColor: theme.primary,
+                      }}
+                    >
+                      {cat.title}
+                    </button>
+                  ))}
+                </div>
               ))}
             </div>
           </div>
@@ -2410,7 +2445,11 @@ export default function Menu({
             if (categoryProducts.length === 0) return null;
 
             return (
-              <div key={category.id} id={`menu-cat-${category.id}`} className="space-y-5 scroll-mt-24">
+              <div
+                key={category.id}
+                id={`menu-cat-${category.id}`}
+                className={`space-y-5 ${isMobilePickup ? 'scroll-mt-24' : 'scroll-mt-32'}`}
+              >
                 <div className="border-b pb-2.5" style={{ borderColor: theme.primaryBorder }}>
                   <h2
                     className={`${
@@ -2425,7 +2464,7 @@ export default function Menu({
                   className={
                     isMobilePickup
                       ? 'grid grid-cols-1 sm:grid-cols-2 gap-3.5'
-                      : 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5'
+                      : 'grid grid-cols-2 md:grid-cols-3 gap-6'
                   }
                 >
                   {categoryProducts.map((product) => (

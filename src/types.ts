@@ -121,7 +121,7 @@ export interface CartItem {
 export type TerminalProvider = 'square' | 'zettle' | 'simulation';
 export type OnlinePaymentProvider = 'paypal' | 'venmo' | 'square_web' | 'simulation';
 export type OrderModality = 'dine_in' | 'takeout';
-export type OrderSource = 'totem' | 'mobile_pickup' | 'kiosk' | 'manual' | 'online';
+export type OrderSource = 'totem' | 'mobile_pickup' | 'kiosk' | 'manual' | 'online' | 'cashier';
 export type PickupType = 'asap' | 'scheduled';
 export type KitchenStatus = 'preparing' | 'ready' | 'completed';
 
@@ -192,7 +192,7 @@ export interface Order {
   readyAt?: any;
   orderLanguage?: string;
   paymentStatus?: 'pending' | 'half' | 'full' | 'paid' | 'awaiting_payment' | 'manual_verification';
-  paymentProvider?: TerminalProvider | 'venmo' | 'paypal' | 'cashapp' | 'zelle' | 'counter' | 'demo';
+  paymentProvider?: TerminalProvider | 'venmo' | 'paypal' | 'cashapp' | 'zelle' | 'counter' | 'cash' | 'card' | 'demo';
   paymentConfirmedAt?: any;
   webhookSecretVerified?: string;
   onlinePaymentProvider?: OnlinePaymentProvider;
@@ -264,6 +264,10 @@ export interface Settings {
   allowPayAtCounter?: boolean;
   emailWebhookSecret?: string;
   totemDemoMode?: boolean;
+  // Totem Screensaver (images stored separately in totem_screensaver collection)
+  screensaverEnabled?: boolean;
+  screensaverIdleSeconds?: number;
+  screensaverIntervalSeconds?: number;
   // Mobile Pickup (External App Mode) Settings
   defaultPrepMinutes?: number;
   pickupOpenTime?: string; // HH:mm e.g. '09:00'

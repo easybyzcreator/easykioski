@@ -12,7 +12,7 @@ import {
   ArrowUp, ArrowDown, MessageCircle, MessageSquare, Calendar, Printer, Cake, Eye, EyeOff, ArrowLeft,
   DollarSign, Coins, ChevronDown, ChevronUp, Users, Download, Truck, Search, Info, Table, ShoppingBag, Calculator,
   MapPin, Navigation, ArrowUpDown, Lock, ChefHat, CreditCard, DatabaseBackup, Clock, Percent, Monitor,
-  Globe, Sparkles, Smartphone, QrCode, KeyRound, Code2, RefreshCw, Camera, ExternalLink
+  Globe, Sparkles, Smartphone, QrCode, KeyRound, Code2, RefreshCw, Camera, ExternalLink, Store
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -48,6 +48,7 @@ import {
   decodeQrCodeFromImageFile,
   resolveAndExtractWalletFromQrPayload,
 } from '../utils/qrCodeReader';
+import { AdminScreensaverManager } from '../screensaver/AdminScreensaverManager';
 import { printDualOrderReceipts, triggerBrowserIframePrint } from '../services/printService';
 import { formatMoney } from '../utils/kioskI18n';
 import { QRCodeCanvas } from 'qrcode.react';
@@ -113,13 +114,15 @@ export default function Admin({
   setSettings,
   setIsAdmin,
   initialUnlocked = false,
-  onOpenKDS
+  onOpenKDS,
+  onOpenCashier
 }: { 
   settings: Settings, 
   setSettings: React.Dispatch<React.SetStateAction<Settings>>,
   setIsAdmin: React.Dispatch<React.SetStateAction<boolean>>,
   initialUnlocked?: boolean,
-  onOpenKDS?: () => void
+  onOpenKDS?: () => void,
+  onOpenCashier?: () => void
 }) {
   const [isLoggedIn, setIsLoggedIn] = useState(Boolean(initialUnlocked));
   const [password, setPassword] = useState('');
@@ -3208,6 +3211,21 @@ export default function Admin({
           >
             <ChefHat size={20} /> Tela da Cozinha (KDS)
           </button>
+
+          <button 
+            type="button"
+            onClick={() => {
+              if (onOpenCashier) {
+                onOpenCashier();
+              } else {
+                window.history.pushState({}, '', '/cashier');
+                window.location.reload();
+              }
+            }}
+            className="mt-1.5 flex items-center gap-3 p-3 rounded-xl transition-all font-bold bg-emerald-700 text-white hover:bg-emerald-800 shadow-md cursor-pointer"
+          >
+            <Store size={20} /> Caixa / PDV (/cashier)
+          </button>
         </nav>
 
         <button 
@@ -4561,14 +4579,47 @@ export default function Admin({
                       Idioma padrão do totem, imposto estadual (EUA), terminal de pagamento (Square / Zettle), dupla impressão 80mm e restauração do catálogo base.
                     </p>
                   </div>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onOpenCashier) onOpenCashier();
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-700 text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2 hover:bg-emerald-800 cursor-pointer"
+                    >
+                      <Store size={16} /> Abrir Caixa (/cashier)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onOpenKDS) onOpenKDS();
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-stone-900 text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2 hover:bg-stone-800 cursor-pointer"
+                    >
+                      <ChefHat size={16} /> Abrir Tela da Cozinha
+                    </button>
+                  </div>
+                </div>
+
+                {/* Link rápido do Caixa / PDV */}
+                <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-black text-emerald-950 flex items-center gap-1.5">
+                      <Store size={14} /> Link Direto da Tela do Caixa (PDV)
+                    </p>
+                    <p className="text-[11px] font-mono text-emerald-800 truncate">
+                      {`${window.location.origin}/cashier`}
+                    </p>
+                  </div>
                   <button
                     type="button"
                     onClick={() => {
-                      if (onOpenKDS) onOpenKDS();
+                      navigator.clipboard.writeText(`${window.location.origin}/cashier`);
+                      toast.success('Link do Caixa (/cashier) copiado!');
                     }}
-                    className="px-4 py-2.5 rounded-xl bg-stone-900 text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2 hover:bg-stone-800 cursor-pointer shrink-0"
+                    className="shrink-0 px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-bold flex items-center gap-1.5 cursor-pointer"
                   >
-                    <ChefHat size={16} /> Abrir Tela da Cozinha
+                    <Copy size={13} /> Copiar Link do Caixa
                   </button>
                 </div>
 
@@ -4659,6 +4710,9 @@ export default function Admin({
                     className="w-5 h-5 accent-stone-900 cursor-pointer"
                   />
                 </label>
+
+                {/* TELA DE DESCANSO DO TOTEM (5 IMAGENS COMPACTADAS 1080x1350 EM PASTA SEPARADA) */}
+                <AdminScreensaverManager settings={settings} setSettings={setSettings} />
 
                 {/* PAGAMENTOS NO TOTEM (QR CODE & CONFIRMAÇÃO AUTOMÁTICA POR E-MAIL) */}
                 <div className="p-5 rounded-2xl bg-stone-50 border border-stone-200 space-y-5">
